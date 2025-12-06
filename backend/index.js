@@ -24,13 +24,15 @@ const transporter = nodemailer.createTransport({
 
 // --- CORS CONFIG ---
 // --- CORS CONFIG - Allow all origins ---
-app.use(cors({
-  origin: "*", // Allow from anywhere
-  credentials: false,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  optionsSuccessStatus: 200,
-}));
+app.use(
+  cors({
+    origin: "*", // Allow from anywhere
+    credentials: false,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    optionsSuccessStatus: 200,
+  })
+);
 
 app.use(express.json());
 
@@ -204,7 +206,7 @@ app.post("/api/sync", authenticateToken, async (req, res) => {
     console.log("📦 Starting Shopify sync...");
     const tenant = await getTenant();
     console.log(`✓ Tenant found: ${tenant.shopDomain}`);
-    
+
     const headers = { "X-Shopify-Access-Token": ACCESS_TOKEN };
     const baseURL = `https://${SHOP_DOMAIN}/admin/api/2023-10`;
 
@@ -213,7 +215,7 @@ app.post("/api/sync", authenticateToken, async (req, res) => {
       headers,
     });
     console.log(`✓ Found ${ordersRes.data.orders?.length || 0} orders`);
-    
+
     for (const o of ordersRes.data.orders) {
       const name = o.customer
         ? `${o.customer.first_name} ${o.customer.last_name}`
@@ -235,8 +237,10 @@ app.post("/api/sync", authenticateToken, async (req, res) => {
     const customersRes = await axios.get(`${baseURL}/customers.json`, {
       headers,
     });
-    console.log(`✓ Found ${customersRes.data.customers?.length || 0} customers`);
-    
+    console.log(
+      `✓ Found ${customersRes.data.customers?.length || 0} customers`
+    );
+
     for (const c of customersRes.data.customers) {
       await prisma.customer.createMany({
         data: {
@@ -248,9 +252,13 @@ app.post("/api/sync", authenticateToken, async (req, res) => {
         skipDuplicates: true,
       });
     }
-    
+
     console.log("✅ Sync completed successfully!");
-    res.json({ message: "Synced!", ordersCount: ordersRes.data.orders?.length || 0, customersCount: customersRes.data.customers?.length || 0 });
+    res.json({
+      message: "Synced!",
+      ordersCount: ordersRes.data.orders?.length || 0,
+      customersCount: customersRes.data.customers?.length || 0,
+    });
   } catch (error) {
     console.error("❌ Sync Error:", error.response?.data || error.message);
     res.status(500).json({ error: "Sync failed", details: error.message });

@@ -334,7 +334,6 @@ function App() {
     const token = localStorage.getItem('token');
     return {
       'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache',
       ...(token && { 'Authorization': `Bearer ${token}` })
     };
   };
