@@ -36,17 +36,28 @@ const corsOptions = {
       "http://localhost:3000",
       "http://127.0.0.1:5173",
       "http://127.0.0.1:5174",
-      // Production
+      // Production - hardcoded
       "https://shopify-analytics-dashboard-three.vercel.app",
-      process.env.FRONTEND_URL, // Dynamic production frontend URL
-    ].filter(Boolean); // Remove undefined values
+    ];
+    
+    // Add FRONTEND_URL from env if it exists
+    if (process.env.FRONTEND_URL && !allowedOrigins.includes(process.env.FRONTEND_URL)) {
+      allowedOrigins.push(process.env.FRONTEND_URL);
+    }
 
-    if (allowedOrigins.includes(origin)) {
+    // Check if origin is in allowlist
+    const isAllowed = allowedOrigins.includes(origin);
+    
+    console.log(`CORS Check: origin=${origin}, allowed=${isAllowed}`);
+
+    if (isAllowed) {
       callback(null, true);
-    } else if (process.env.NODE_ENV !== "production") {
-      // Allow all origins in development
+    } else if (process.env.NODE_ENV === "development") {
+      // In development, allow all origins for easier testing
+      console.log("Development mode: allowing all origins");
       callback(null, true);
     } else {
+      console.error(`CORS blocked: ${origin}`);
       callback(new Error("Not allowed by CORS"));
     }
   },
