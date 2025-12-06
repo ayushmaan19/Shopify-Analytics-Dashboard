@@ -5,7 +5,7 @@ const { PrismaClient } = require("@prisma/client");
 const axios = require("axios");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 
 const app = express();
 const prisma = new PrismaClient({
@@ -19,20 +19,19 @@ const PORT = process.env.PORT || 5001;
 const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
 
-// --- NODEMAILER CONFIG ---
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER || "noreply@merchantinsights.com",
-    pass: process.env.EMAIL_PASSWORD || "test-password",
-  },
-});
+// --- RESEND CONFIG ---
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Async email helper function
-const sendEmailAsync = async (mailOptions) => {
+// Async email helper function using Resend
+const sendEmailAsync = async (to, subject, html) => {
   try {
-    await transporter.sendMail(mailOptions);
-    console.log(`✅ Email sent to ${mailOptions.to}`);
+    await resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev",
+      to,
+      subject,
+      html,
+    });
+    console.log(`✅ Email sent to ${to}`);
   } catch (emailError) {
     console.error(`❌ Failed to send email: ${emailError.message}`);
   }
@@ -134,21 +133,20 @@ app.post("/api/auth/login", async (req, res) => {
     console.log(`\n📧 OTP for ${email}: ${otp} (expires in 10 minutes)\n`);
 
     // Send OTP via email asynchronously (don't wait for completion)
-    if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-      sendEmailAsync({
-        from: process.env.EMAIL_USER,
-        to: email,
-        subject: "Your Merchant Insights OTP Code",
-        html: `
+    if (process.env.SENDGRID_API_KEY) {
+      sendEmailAsync(
+        email,
+        "Your Merchant Insights OTP Code",
+        `
           <h2>Welcome to Merchant Insights</h2>
           <p>Your OTP code is: <strong style="font-size: 24px; color: #059669;">${otp}</strong></p>
           <p>This code will expire in 10 minutes.</p>
           <p>Do not share this code with anyone.</p>
-        `,
-      });
+        `
+      );
     } else {
       console.log(
-        `⚠️  Email not configured. OTP: ${otp} (check console above)`
+        `⚠️  SendGrid not configured. OTP: ${otp} (check console above)`
       );
     }
 
@@ -242,18 +240,17 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     );
 
     // Send OTP via email asynchronously (don't wait for completion)
-    if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-      sendEmailAsync({
-        from: process.env.EMAIL_USER,
-        to: email,
-        subject: "Password Reset - Merchant Insights",
-        html: `
+    if (process.env.SENDGRID_API_KEY) {
+      sendEmailAsync(
+        email,
+        "Password Reset - Merchant Insights",
+        `
           <h2>Password Reset Request</h2>
           <p>Your OTP code is: <strong style="font-size: 24px; color: #059669;">${otp}</strong></p>
           <p>This code will expire in 10 minutes.</p>
           <p>If you did not request this, please ignore this email.</p>
-        `,
-      });
+        `
+      );
     }
 
     res.json({
