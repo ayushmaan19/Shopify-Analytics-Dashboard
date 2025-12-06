@@ -1,0 +1,63 @@
+// backend/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  password     String
+  otp          String?
+  otpExpiry    DateTime?
+  isVerified   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+}
+
+model Tenant {
+  id          String     @id @default(uuid())
+  shopDomain  String     @unique
+  accessToken String?
+  products    Product[]
+  orders      Order[]
+  customers   Customer[]
+}
+
+model Product {
+  id             String   @id @default(uuid())
+  shopifyId      String
+  title          String
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@unique([shopifyId, tenantId]) // <--- THIS PREVENTS DUPLICATES
+}
+
+model Order {
+  id             String   @id @default(uuid())
+  shopifyId      String
+  totalPrice     Float
+  currency       String
+  customerName   String?
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+  createdAt      DateTime
+
+  @@unique([shopifyId, tenantId]) // <--- THIS PREVENTS DUPLICATES
+}
+
+model Customer {
+  id             String   @id @default(uuid())
+  shopifyId      String
+  firstName      String?
+  email          String?
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@unique([shopifyId, tenantId]) // <--- THIS PREVENTS DUPLICATES
+}
