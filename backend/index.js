@@ -8,7 +8,17 @@ const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
 
 const app = express();
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL,
+    },
+  },
+  pool: {
+    timeout: 30,
+    max: 10,
+  },
+});
 const PORT = process.env.PORT || 5001;
 const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
@@ -21,6 +31,16 @@ const transporter = nodemailer.createTransport({
     pass: process.env.EMAIL_PASSWORD || "test-password",
   },
 });
+
+// Async email helper function
+const sendEmailAsync = async (mailOptions) => {
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Email sent to ${mailOptions.to}`);
+  } catch (emailError) {
+    console.error(`❌ Failed to send email: ${emailError.message}`);
+  }
+};
 
 // --- CORS CONFIG ---
 // --- CORS CONFIG - Allow all origins ---
@@ -117,24 +137,19 @@ app.post("/api/auth/login", async (req, res) => {
     // Log OTP to console for development/demo
     console.log(`\n📧 OTP for ${email}: ${otp} (expires in 10 minutes)\n`);
 
-    // Send OTP via email (if configured)
+    // Send OTP via email asynchronously (don't wait for completion)
     if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-      try {
-        await transporter.sendMail({
-          from: process.env.EMAIL_USER,
-          to: email,
-          subject: "Your Merchant Insights OTP Code",
-          html: `
-            <h2>Welcome to Merchant Insights</h2>
-            <p>Your OTP code is: <strong style="font-size: 24px; color: #059669;">${otp}</strong></p>
-            <p>This code will expire in 10 minutes.</p>
-            <p>Do not share this code with anyone.</p>
-          `,
-        });
-        console.log(`✅ Email sent to ${email}`);
-      } catch (emailError) {
-        console.error(`❌ Failed to send email: ${emailError.message}`);
-      }
+      sendEmailAsync({
+        from: process.env.EMAIL_USER,
+        to: email,
+        subject: "Your Merchant Insights OTP Code",
+        html: `
+          <h2>Welcome to Merchant Insights</h2>
+          <p>Your OTP code is: <strong style="font-size: 24px; color: #059669;">${otp}</strong></p>
+          <p>This code will expire in 10 minutes.</p>
+          <p>Do not share this code with anyone.</p>
+        `,
+      });
     } else {
       console.log(
         `⚠️  Email not configured. OTP: ${otp} (check console above)`
@@ -230,24 +245,19 @@ app.post("/api/auth/forgot-password", async (req, res) => {
       `\n📧 Password Reset OTP for ${email}: ${otp} (expires in 10 minutes)\n`
     );
 
-    // Send OTP via email (if configured)
+    // Send OTP via email asynchronously (don't wait for completion)
     if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-      try {
-        await transporter.sendMail({
-          from: process.env.EMAIL_USER,
-          to: email,
-          subject: "Password Reset - Merchant Insights",
-          html: `
-            <h2>Password Reset Request</h2>
-            <p>Your OTP code is: <strong style="font-size: 24px; color: #059669;">${otp}</strong></p>
-            <p>This code will expire in 10 minutes.</p>
-            <p>If you did not request this, please ignore this email.</p>
-          `,
-        });
-        console.log(`✅ Password reset email sent to ${email}`);
-      } catch (emailError) {
-        console.error(`❌ Failed to send email: ${emailError.message}`);
-      }
+      sendEmailAsync({
+        from: process.env.EMAIL_USER,
+        to: email,
+        subject: "Password Reset - Merchant Insights",
+        html: `
+          <h2>Password Reset Request</h2>
+          <p>Your OTP code is: <strong style="font-size: 24px; color: #059669;">${otp}</strong></p>
+          <p>This code will expire in 10 minutes.</p>
+          <p>If you did not request this, please ignore this email.</p>
+        `,
+      });
     }
 
     res.json({
