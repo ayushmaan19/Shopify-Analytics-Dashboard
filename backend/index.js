@@ -30,15 +30,20 @@ const corsOptions = {
     
     // Allowed origins (development + production)
     const allowedOrigins = [
+      // Development
+      "http://localhost:5173",
       "http://localhost:5174",
       "http://localhost:3000",
+      "http://127.0.0.1:5173",
       "http://127.0.0.1:5174",
-      process.env.FRONTEND_URL, // Add production frontend URL
+      // Production
+      "https://shopify-analytics-dashboard-three.vercel.app",
+      process.env.FRONTEND_URL, // Dynamic production frontend URL
     ].filter(Boolean); // Remove undefined values
 
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
-    } else if (process.env.NODE_ENV === "development") {
+    } else if (process.env.NODE_ENV !== "production") {
       // Allow all origins in development
       callback(null, true);
     } else {
