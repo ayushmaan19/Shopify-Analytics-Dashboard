@@ -14,10 +14,6 @@ const prisma = new PrismaClient({
       url: process.env.DATABASE_URL,
     },
   },
-  pool: {
-    timeout: 30,
-    max: 10,
-  },
 });
 const PORT = process.env.PORT || 5001;
 const JWT_SECRET =
