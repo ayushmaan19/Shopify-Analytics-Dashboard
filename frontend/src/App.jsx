@@ -493,7 +493,7 @@ function App() {
         } catch (error) {
           console.error("Auto-sync error:", error);
         }
-      }, 30000); // 30 seconds
+      }, 3000); // 30 seconds
     } else {
       console.log("⏸ Auto-Sync DISABLED");
     }
