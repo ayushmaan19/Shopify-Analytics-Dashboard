@@ -9,7 +9,7 @@ const nodemailer = require("nodemailer");
 
 const app = express();
 const prisma = new PrismaClient();
-const PORT = 5001;
+const PORT = process.env.PORT || 5001;
 const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
 
