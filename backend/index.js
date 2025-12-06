@@ -29,7 +29,7 @@ app.use(
     origin: "*", // Allow from anywhere
     credentials: false,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "Cache-Control"],
     optionsSuccessStatus: 200,
   })
 );
