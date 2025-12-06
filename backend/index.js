@@ -25,15 +25,23 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 // Async email helper function using Resend
 const sendEmailAsync = async (to, subject, html) => {
   try {
-    await resend.emails.send({
+    // Check if API key is configured
+    if (!process.env.RESEND_API_KEY) {
+      console.error("❌ RESEND_API_KEY not configured in environment variables");
+      return;
+    }
+
+    console.log(`📧 Attempting to send email to ${to}...`);
+    const result = await resend.emails.send({
       from: process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev",
       to,
       subject,
       html,
     });
-    console.log(`✅ Email sent to ${to}`);
+    console.log(`✅ Email sent successfully to ${to}. ID: ${result.id}`);
   } catch (emailError) {
-    console.error(`❌ Failed to send email: ${emailError.message}`);
+    console.error(`❌ Failed to send email to ${to}:`, emailError);
+    console.error(`Error details:`, JSON.stringify(emailError, null, 2));
   }
 };
 
