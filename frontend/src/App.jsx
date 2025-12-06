@@ -339,6 +339,44 @@ function App() {
     };
   };
 
+  // MANUAL SYNC - calls backend to fetch from Shopify
+  const handleSync = async () => {
+    setIsOrdersLoading(true);
+    setHasError(false);
+    
+    try {
+      console.log(`[${new Date().toLocaleTimeString()}] Starting Shopify sync...`);
+      
+      // Call the sync endpoint
+      const syncResponse = await fetch(`${API_BASE_URL}/api/sync`, {
+        method: 'POST',
+        headers: getHeaders()
+      });
+      
+      if (!syncResponse.ok) {
+        throw new Error(`Sync failed: ${syncResponse.status}`);
+      }
+      
+      const syncData = await syncResponse.json();
+      console.log("Sync response:", syncData);
+      
+      // Wait a moment for database to update
+      await new Promise(r => setTimeout(r, 500));
+      
+      // Then fetch the updated data
+      await fetchOrders(false);
+      
+      setLastSyncTime(new Date());
+      toast.success("Synced from Shopify!");
+    } catch (error) {
+      console.error("Sync Error:", error);
+      setHasError(true);
+      toast.error("Sync Failed: " + error.message);
+    } finally {
+      setIsOrdersLoading(false);
+    }
+  };
+
   const fetchOrders = async (isBackground = false) => {
     if (!isBackground) setIsOrdersLoading(true);
     setHasError(false);
@@ -424,11 +462,25 @@ function App() {
   useEffect(() => {
     let interval;
     if (isAutoSync) {
-      console.log("🔄 Auto-Sync ENABLED - Syncing every 5 seconds");
-      // Poll every 5 seconds if Toggle is ON
-      interval = setInterval(() => {
-        fetchOrders(true);
-      }, 5000);
+      console.log("🔄 Auto-Sync ENABLED - Syncing every 30 seconds");
+      // Poll every 30 seconds if Toggle is ON
+      interval = setInterval(async () => {
+        try {
+          // First sync from Shopify
+          const syncResponse = await fetch(`${API_BASE_URL}/api/sync`, {
+            method: 'POST',
+            headers: getHeaders()
+          });
+          
+          if (syncResponse.ok) {
+            // Then fetch updated data
+            await new Promise(r => setTimeout(r, 500));
+            fetchOrders(true);
+          }
+        } catch (error) {
+          console.error("Auto-sync error:", error);
+        }
+      }, 30000); // 30 seconds
     } else {
       console.log("⏸ Auto-Sync DISABLED");
     }
@@ -519,7 +571,7 @@ function App() {
               </button>
               
               <button 
-                onClick={() => fetchOrders(false)}
+                onClick={() => handleSync()}
                 className={`px-4 py-2 rounded-full text-sm font-semibold flex items-center gap-2 transition-all shadow-lg ${
                   hasError 
                   ? "bg-red-500 hover:bg-red-600 text-white shadow-red-200"
@@ -527,7 +579,7 @@ function App() {
                 }`}
               >
                 {isOrdersLoading ? <Loader2 size={16} className="animate-spin" /> : hasError ? <AlertCircle size={16} /> : <RefreshCcw size={16} />}
-                {isOrdersLoading ? "Syncing..." : hasError ? "Retry Connection" : "Sync Now"}
+                {isOrdersLoading ? "Syncing..." : hasError ? "Retry Sync" : "Sync Now"}
               </button>
             </div>
             {lastSyncTime && (
