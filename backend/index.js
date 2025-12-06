@@ -38,6 +38,7 @@ app.use(express.json());
 
 const SHOP_DOMAIN = process.env.SHOPIFY_SHOP_DOMAIN;
 const ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+const SHOP_TIMEZONE = process.env.SHOP_TIMEZONE || "Asia/Kolkata";
 
 async function getTenant() {
   // Always use the same tenant for all users (single Shopify store)
@@ -201,6 +202,118 @@ app.get("/api/auth/verify", authenticateToken, (req, res) => {
   res.json({ user: req.user });
 });
 
+// Forgot Password - Send OTP to reset
+app.post("/api/auth/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: "Email required" });
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { otp, otpExpiry },
+    });
+
+    // Log OTP to console for development/demo
+    console.log(
+      `\n📧 Password Reset OTP for ${email}: ${otp} (expires in 10 minutes)\n`
+    );
+
+    // Send OTP via email (if configured)
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
+      try {
+        await transporter.sendMail({
+          from: process.env.EMAIL_USER,
+          to: email,
+          subject: "Password Reset - Merchant Insights",
+          html: `
+            <h2>Password Reset Request</h2>
+            <p>Your OTP code is: <strong style="font-size: 24px; color: #059669;">${otp}</strong></p>
+            <p>This code will expire in 10 minutes.</p>
+            <p>If you did not request this, please ignore this email.</p>
+          `,
+        });
+        console.log(`✅ Password reset email sent to ${email}`);
+      } catch (emailError) {
+        console.error(`❌ Failed to send email: ${emailError.message}`);
+      }
+    }
+
+    res.json({
+      message: "OTP sent to your email for password reset.",
+      email: email,
+      userId: user.id,
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({ error: "Password reset request failed" });
+  }
+});
+
+// Reset Password with OTP
+app.post("/api/auth/reset-password", async (req, res) => {
+  try {
+    const { userId, otp, newPassword } = req.body;
+    if (!userId || !otp || !newPassword) {
+      return res
+        .status(400)
+        .json({ error: "User ID, OTP, and new password required" });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Check if OTP is valid and not expired
+    if (user.otp !== otp) {
+      return res.status(401).json({ error: "Invalid OTP" });
+    }
+
+    if (!user.otpExpiry || new Date() > user.otpExpiry) {
+      return res.status(401).json({ error: "OTP expired" });
+    }
+
+    // Hash new password and update
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        otp: null,
+        otpExpiry: null,
+        isVerified: true,
+      },
+    });
+
+    // Generate JWT token
+    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, {
+      expiresIn: "7d",
+    });
+
+    res.json({
+      token,
+      user: { id: user.id, email: user.email },
+      message: "Password reset successful",
+    });
+  } catch (error) {
+    console.error("Password reset error:", error);
+    res.status(500).json({ error: "Password reset failed" });
+  }
+});
+
 app.post("/api/sync", authenticateToken, async (req, res) => {
   try {
     console.log("📦 Starting Shopify sync...");
@@ -216,22 +329,25 @@ app.post("/api/sync", authenticateToken, async (req, res) => {
     });
     console.log(`✓ Found ${ordersRes.data.orders?.length || 0} orders`);
 
-    for (const o of ordersRes.data.orders) {
+    // Batch insert orders for better performance
+    const orderData = ordersRes.data.orders.map((o) => {
       const name = o.customer
         ? `${o.customer.first_name} ${o.customer.last_name}`
         : "Guest";
-      await prisma.order.createMany({
-        data: {
-          shopifyId: String(o.id),
-          totalPrice: parseFloat(o.total_price),
-          currency: o.currency,
-          customerName: name,
-          createdAt: new Date(o.created_at),
-          tenantId: tenant.id,
-        },
-        skipDuplicates: true,
-      });
-    }
+      return {
+        shopifyId: String(o.id),
+        totalPrice: parseFloat(o.total_price),
+        currency: o.currency,
+        customerName: name,
+        createdAt: new Date(o.created_at),
+        tenantId: tenant.id,
+      };
+    });
+
+    await prisma.order.createMany({
+      data: orderData,
+      skipDuplicates: true,
+    });
 
     console.log(`🔄 Fetching customers from ${baseURL}/customers.json`);
     const customersRes = await axios.get(`${baseURL}/customers.json`, {
@@ -241,17 +357,18 @@ app.post("/api/sync", authenticateToken, async (req, res) => {
       `✓ Found ${customersRes.data.customers?.length || 0} customers`
     );
 
-    for (const c of customersRes.data.customers) {
-      await prisma.customer.createMany({
-        data: {
-          shopifyId: String(c.id),
-          firstName: c.first_name,
-          email: c.email,
-          tenantId: tenant.id,
-        },
-        skipDuplicates: true,
-      });
-    }
+    // Batch insert customers for better performance
+    const customerData = customersRes.data.customers.map((c) => ({
+      shopifyId: String(c.id),
+      firstName: c.first_name,
+      email: c.email,
+      tenantId: tenant.id,
+    }));
+
+    await prisma.customer.createMany({
+      data: customerData,
+      skipDuplicates: true,
+    });
 
     console.log("✅ Sync completed successfully!");
     res.json({
@@ -269,6 +386,29 @@ app.get("/api/orders", authenticateToken, async (req, res) => {
   try {
     const tenant = await getTenant();
     const { startDate, endDate } = req.query;
+
+    const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: SHOP_TIMEZONE,
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: true,
+    });
+
+    const dateFormatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: SHOP_TIMEZONE,
+      month: "short",
+      day: "numeric",
+    });
+
+    const toTimezoneDate = (date) =>
+      new Date(
+        date.toLocaleString("en-US", {
+          timeZone: SHOP_TIMEZONE,
+        })
+      );
 
     // Build date filter
     const dateFilter = {};
@@ -300,48 +440,30 @@ app.get("/api/orders", authenticateToken, async (req, res) => {
       id: o.id,
       shopifyId: o.shopifyId,
       name: o.customerName || "Guest",
-      date: new Date(o.createdAt).toLocaleString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-        hour: "numeric",
-        minute: "numeric",
-        hour12: true,
-        timeZone: "UTC",
-      }),
+      date: dateTimeFormatter.format(new Date(o.createdAt)),
       amount: o.totalPrice.toFixed(2),
       status: "paid",
     }));
 
     // 4. Graph (Group by "Dec 6" format)
     const trendMap = {};
-    const today = new Date();
+    const today = toTimezoneDate(new Date());
 
     for (let i = 6; i >= 0; i--) {
       const d = new Date(today);
-      d.setUTCDate(today.getUTCDate() - i);
-      const dateKey = d.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        timeZone: "UTC",
-      });
+      d.setDate(d.getDate() - i);
+      const dateKey = dateFormatter.format(d);
       trendMap[dateKey] = 0;
     }
 
     allOrders.forEach((order) => {
-      const orderDate = new Date(order.createdAt);
-      const orderDateUTC = new Date(orderDate.toLocaleString("en-US", { timeZone: "UTC" }));
-      const todayUTC = new Date(today.toLocaleString("en-US", { timeZone: "UTC" }));
-      
-      const diffTime = Math.abs(todayUTC - orderDateUTC);
+      const orderDate = toTimezoneDate(new Date(order.createdAt));
+
+      const diffTime = Math.abs(today - orderDate);
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       if (diffDays <= 7) {
-        const dateKey = orderDateUTC.toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          timeZone: "UTC",
-        });
+        const dateKey = dateFormatter.format(orderDate);
         if (trendMap[dateKey] !== undefined) {
           trendMap[dateKey] += order.totalPrice;
         }

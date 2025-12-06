@@ -9,12 +9,14 @@ const SHOPIFY_DOMAIN = import.meta.env.VITE_SHOPIFY_DOMAIN || "xeno-test-storeV1
 const LoginPage = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [userId, setUserId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [step, setStep] = useState('login'); // 'login' or 'otp'
+  const [step, setStep] = useState('login'); // 'login', 'otp', 'forgot', 'reset'
   const [otpTimer, setOtpTimer] = useState(600); // 10 minutes
+  const [isNewUser, setIsNewUser] = useState(false);
 
   // OTP countdown timer
   useEffect(() => {
@@ -52,7 +54,8 @@ const LoginPage = ({ onLogin }) => {
         setUserId(data.userId);
         setStep('otp');
         setOtpTimer(600);
-        toast.success('OTP sent to your email!');
+        setIsNewUser(true);
+        toast.success('New account created! OTP sent to your email.');
       }
     } catch (err) {
       setError(err.message);
@@ -82,7 +85,11 @@ const LoginPage = ({ onLogin }) => {
 
       localStorage.setItem('token', data.token);
       onLogin(data.user);
-      toast.success('Logged in successfully!');
+      if (isNewUser) {
+        toast.success('Account verified! Remember your password - it cannot be changed yet.', { duration: 6000 });
+      } else {
+        toast.success('Logged in successfully!');
+      }
     } catch (err) {
       setError(err.message);
       toast.error(err.message);
@@ -96,10 +103,18 @@ const LoginPage = ({ onLogin }) => {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      const endpoint = step === 'reset' 
+        ? `${API_BASE_URL}/api/auth/forgot-password`
+        : `${API_BASE_URL}/api/auth/login`;
+      
+      const body = step === 'reset'
+        ? { email }
+        : { email, password };
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(body),
       });
 
       const data = await response.json();
@@ -119,6 +134,65 @@ const LoginPage = ({ onLogin }) => {
     }
   };
 
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to send reset code');
+      }
+
+      setUserId(data.userId);
+      setStep('reset');
+      setOtpTimer(600);
+      toast.success('Password reset code sent to your email!');
+    } catch (err) {
+      setError(err.message);
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, otp, newPassword }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Password reset failed');
+      }
+
+      localStorage.setItem('token', data.token);
+      onLogin(data.user);
+      toast.success('Password reset successful!');
+    } catch (err) {
+      setError(err.message);
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (step === 'otp') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
@@ -127,6 +201,11 @@ const LoginPage = ({ onLogin }) => {
             <h1 className="text-3xl font-extrabold text-slate-900 mb-2">Verify OTP</h1>
             <p className="text-slate-500">Enter the 6-digit code sent to your email</p>
             <p className="text-sm text-slate-400 mt-2">{email}</p>
+            {isNewUser && (
+              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-xs text-amber-800 font-semibold">⚠️ Remember your password! It cannot be changed at this time.</p>
+              </div>
+            )}
           </div>
 
           <form onSubmit={handleVerifyOtp} className="space-y-4">
@@ -170,6 +249,131 @@ const LoginPage = ({ onLogin }) => {
                 setStep('login');
                 setError('');
                 setOtp('');
+                setIsNewUser(false);
+              }}
+              className="text-sm text-slate-500 hover:text-slate-700 font-semibold underline"
+            >
+              Back to Login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'forgot') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
+          <div className="mb-8 text-center">
+            <h1 className="text-3xl font-extrabold text-slate-900 mb-2">Forgot Password</h1>
+            <p className="text-slate-500">Enter your email to receive a reset code</p>
+          </div>
+
+          <form onSubmit={handleForgotPassword} className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="your@email.com"
+                className="w-full px-4 py-2 border-2 border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                required
+              />
+            </div>
+
+            {error && <p className="text-red-500 text-sm font-semibold">{error}</p>}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-all disabled:opacity-50"
+            >
+              {loading ? 'Sending...' : 'Send Reset Code'}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <button
+              onClick={() => {
+                setStep('login');
+                setError('');
+              }}
+              className="text-sm text-slate-500 hover:text-slate-700 font-semibold underline"
+            >
+              Back to Login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'reset') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
+          <div className="mb-8 text-center">
+            <h1 className="text-3xl font-extrabold text-slate-900 mb-2">Reset Password</h1>
+            <p className="text-slate-500">Enter the code and your new password</p>
+            <p className="text-sm text-slate-400 mt-2">{email}</p>
+          </div>
+
+          <form onSubmit={handleResetPassword} className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">OTP Code</label>
+              <input
+                type="text"
+                maxLength="6"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                placeholder="000000"
+                className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 text-center text-2xl font-bold tracking-widest"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">New Password</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full px-4 py-2 border-2 border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                required
+              />
+            </div>
+
+            {error && <p className="text-red-500 text-sm font-semibold">{error}</p>}
+
+            <button
+              type="submit"
+              disabled={loading || otp.length !== 6}
+              className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-all disabled:opacity-50"
+            >
+              {loading ? 'Resetting...' : 'Reset Password'}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center space-y-2">
+            <p className="text-sm text-slate-500">
+              Code expires in: <span className="font-semibold text-emerald-600">{Math.floor(otpTimer / 60)}:{String(otpTimer % 60).padStart(2, '0')}</span>
+            </p>
+            <button
+              onClick={handleResendOtp}
+              disabled={loading}
+              className="text-sm text-emerald-600 hover:text-emerald-700 font-semibold underline disabled:opacity-50"
+            >
+              Didn't receive code? Resend
+            </button>
+            <button
+              onClick={() => {
+                setStep('login');
+                setError('');
+                setOtp('');
+                setNewPassword('');
               }}
               className="text-sm text-slate-500 hover:text-slate-700 font-semibold underline"
             >
@@ -235,7 +439,19 @@ const LoginPage = ({ onLogin }) => {
           </button>
         </form>
 
-        <p className="text-center text-slate-500 text-sm mt-6">
+        <div className="mt-6 text-center">
+          <button
+            onClick={() => {
+              setStep('forgot');
+              setError('');
+            }}
+            className="text-sm text-emerald-600 hover:text-emerald-700 font-semibold underline"
+          >
+            Forgot Password?
+          </button>
+        </div>
+
+        <p className="text-center text-slate-500 text-sm mt-4">
           Demo: Use any email & password to register/login
         </p>
       </div>
@@ -361,10 +577,7 @@ function App() {
       
       console.log("Sync response:", syncData);
       
-      // Wait a moment for database to update
-      await new Promise(r => setTimeout(r, 500));
-      
-      // Then fetch the updated data
+      // Then fetch the updated data immediately
       await fetchOrders(false);
       
       setLastSyncTime(new Date());
@@ -493,7 +706,7 @@ function App() {
         } catch (error) {
           console.error("Auto-sync error:", error);
         }
-      }, 1000); // 1 second
+      }, 500); // 0.5 second
     } else {
       console.log("⏸ Auto-Sync DISABLED");
     }
@@ -501,6 +714,13 @@ function App() {
       if (interval) clearInterval(interval);
     };
   }, [isAutoSync]);
+
+  // Fetch orders when date range changes
+  useEffect(() => {
+    if (user) {
+      fetchOrders(false);
+    }
+  }, [startDate, endDate]);
 
   const filteredOrders = recentOrders.filter((order) =>
     (order.date && order.date.toLowerCase().includes(orderSearchTerm.toLowerCase())) ||
@@ -538,26 +758,19 @@ function App() {
               <input
                 type="date"
                 value={startDate}
-                onChange={(e) => {
-                  setStartDate(e.target.value);
-                  fetchOrders(false);
-                }}
+                onChange={(e) => setStartDate(e.target.value)}
                 className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:border-emerald-500"
               />
               <input
                 type="date"
                 value={endDate}
-                onChange={(e) => {
-                  setEndDate(e.target.value);
-                  fetchOrders(false);
-                }}
+                onChange={(e) => setEndDate(e.target.value)}
                 className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:border-emerald-500"
               />
               <button 
                 onClick={() => {
                   setStartDate("");
                   setEndDate("");
-                  fetchOrders(false);
                 }}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-all"
               >
