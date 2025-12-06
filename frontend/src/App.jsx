@@ -353,11 +353,13 @@ function App() {
         headers: getHeaders()
       });
       
+      const syncData = await syncResponse.json();
+      
       if (!syncResponse.ok) {
-        throw new Error(`Sync failed: ${syncResponse.status}`);
+        console.error("Sync error response:", syncData);
+        throw new Error(syncData.details || syncData.error || `Sync failed: ${syncResponse.status}`);
       }
       
-      const syncData = await syncResponse.json();
       console.log("Sync response:", syncData);
       
       // Wait a moment for database to update
@@ -387,10 +389,17 @@ function App() {
       if (endDate) queryParams.append('endDate', endDate);
       
       console.log(`[${new Date().toLocaleTimeString()}] Fetching from: ${API_BASE_URL}/api/orders${isBackground ? ' (Background)' : ''}`);
+      console.log("Headers:", getHeaders());
+      
       const response = await fetch(`${API_BASE_URL}/api/orders?${queryParams}`, {
         headers: getHeaders()
       });
-      if (!response.ok) throw new Error(`Server Error: ${response.status}`);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error("Fetch error response:", errorData);
+        throw new Error(errorData.error || `Server Error: ${response.status}`);
+      }
       
       const data = await response.json();
       console.log("Data received:", data);
@@ -455,7 +464,10 @@ function App() {
 
   // INITIAL LOAD
   useEffect(() => {
-    fetchOrders();
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetchOrders();
+    }
   }, []);
 
   // AUTO-SYNC EFFECT (Depends on Toggle)
