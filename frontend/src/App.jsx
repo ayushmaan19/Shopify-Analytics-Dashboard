@@ -462,11 +462,13 @@ function App() {
     toast.success('Logged out');
   };
 
-  // INITIAL LOAD
+  // INITIAL LOAD - Auto-sync on first load
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
-      fetchOrders();
+      // Auto-sync from Shopify on first load
+      console.log("🔄 Initial load: Starting auto-sync...");
+      handleSync();
     }
   }, []);
 
