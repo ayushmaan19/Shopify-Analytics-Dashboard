@@ -5,7 +5,7 @@ const { PrismaClient } = require("@prisma/client");
 const axios = require("axios");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const { Resend } = require("resend");
+const nodemailer = require("nodemailer");
 
 const app = express();
 const prisma = new PrismaClient({
@@ -19,39 +19,33 @@ const PORT = process.env.PORT || 5001;
 const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
 
-// --- RESEND CONFIG ---
-const resend = new Resend(process.env.RESEND_API_KEY);
+// --- GMAIL SMTP CONFIG ---
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD,
+  },
+});
 
-// Async email helper function using Resend
+// Async email helper function using Gmail
 const sendEmailAsync = async (to, subject, html) => {
   try {
-    // Check if API key is configured
-    if (!process.env.RESEND_API_KEY) {
-      console.error("❌ RESEND_API_KEY not configured in environment variables");
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+      console.error("❌ EMAIL_USER or EMAIL_PASSWORD not configured");
       return;
     }
 
-    console.log(`📧 Attempting to send email to ${to}...`);
-    const { data, error } = await resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev",
+    console.log(`📧 Sending email to ${to}...`);
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
       to,
       subject,
       html,
     });
-
-    if (error) {
-      console.error(`❌ Resend error for ${to}:`, error);
-      // If validation error about test email, inform user
-      if (error.name === 'validation_error' && error.message.includes('testing emails')) {
-        console.error('⚠️  In test mode, Resend only sends to your verified email address.');
-        console.error('⚠️  To send to any email, verify a domain at resend.com/domains');
-      }
-      return;
-    }
-
-    console.log(`✅ Email sent successfully to ${to}. Data:`, data);
+    console.log(`✅ Email sent successfully to ${to}`);
   } catch (emailError) {
-    console.error(`❌ Failed to send email to ${to}:`, emailError);
+    console.error(`❌ Failed to send email to ${to}:`, emailError.message);
   }
 };
 
