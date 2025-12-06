@@ -22,7 +22,36 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-app.use(cors());
+// --- CORS CONFIG ---
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Allowed origins (development + production)
+    const allowedOrigins = [
+      "http://localhost:5174",
+      "http://localhost:3000",
+      "http://127.0.0.1:5174",
+      process.env.FRONTEND_URL, // Add production frontend URL
+    ].filter(Boolean); // Remove undefined values
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else if (process.env.NODE_ENV === "development") {
+      // Allow all origins in development
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  optionsSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 const SHOP_DOMAIN = process.env.SHOPIFY_SHOP_DOMAIN;
