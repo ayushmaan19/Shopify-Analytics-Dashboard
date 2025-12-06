@@ -307,6 +307,7 @@ app.get("/api/orders", authenticateToken, async (req, res) => {
         hour: "numeric",
         minute: "numeric",
         hour12: true,
+        timeZone: "UTC",
       }),
       amount: o.totalPrice.toFixed(2),
       status: "paid",
@@ -318,23 +319,28 @@ app.get("/api/orders", authenticateToken, async (req, res) => {
 
     for (let i = 6; i >= 0; i--) {
       const d = new Date(today);
-      d.setDate(today.getDate() - i);
+      d.setUTCDate(today.getUTCDate() - i);
       const dateKey = d.toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
+        timeZone: "UTC",
       });
       trendMap[dateKey] = 0;
     }
 
     allOrders.forEach((order) => {
       const orderDate = new Date(order.createdAt);
-      const diffTime = Math.abs(today - orderDate);
+      const orderDateUTC = new Date(orderDate.toLocaleString("en-US", { timeZone: "UTC" }));
+      const todayUTC = new Date(today.toLocaleString("en-US", { timeZone: "UTC" }));
+      
+      const diffTime = Math.abs(todayUTC - orderDateUTC);
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       if (diffDays <= 7) {
-        const dateKey = orderDate.toLocaleDateString("en-US", {
+        const dateKey = orderDateUTC.toLocaleDateString("en-US", {
           month: "short",
           day: "numeric",
+          timeZone: "UTC",
         });
         if (trendMap[dateKey] !== undefined) {
           trendMap[dateKey] += order.totalPrice;
