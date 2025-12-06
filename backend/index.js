@@ -23,57 +23,22 @@ const transporter = nodemailer.createTransport({
 });
 
 // --- CORS CONFIG ---
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    // Allowed origins (development + production)
-    const allowedOrigins = [
-      // Development
-      "http://localhost:5173",
-      "http://localhost:5174",
-      "http://localhost:3000",
-      "http://127.0.0.1:5173",
-      "http://127.0.0.1:5174",
-      // Production - hardcoded
-      "https://shopify-analytics-dashboard-three.vercel.app",
-    ];
-    
-    // Add FRONTEND_URL from env if it exists
-    if (process.env.FRONTEND_URL && !allowedOrigins.includes(process.env.FRONTEND_URL)) {
-      allowedOrigins.push(process.env.FRONTEND_URL);
-    }
-
-    // Check if origin is in allowlist
-    const isAllowed = allowedOrigins.includes(origin);
-    
-    console.log(`CORS Check: origin=${origin}, allowed=${isAllowed}`);
-
-    if (isAllowed) {
-      callback(null, true);
-    } else if (process.env.NODE_ENV === "development") {
-      // In development, allow all origins for easier testing
-      console.log("Development mode: allowing all origins");
-      callback(null, true);
-    } else {
-      console.error(`CORS blocked: ${origin}`);
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true,
+// --- CORS CONFIG - Allow all origins ---
+app.use(cors({
+  origin: "*", // Allow from anywhere
+  credentials: false,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   optionsSuccessStatus: 200,
-};
+}));
 
-app.use(cors(corsOptions));
 app.use(express.json());
 
 const SHOP_DOMAIN = process.env.SHOPIFY_SHOP_DOMAIN;
 const ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 
 async function getTenant() {
+  // Always use the same tenant for all users (single Shopify store)
   let tenant = await prisma.tenant.findUnique({
     where: { shopDomain: SHOP_DOMAIN },
   });
