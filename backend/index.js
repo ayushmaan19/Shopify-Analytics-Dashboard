@@ -32,16 +32,26 @@ const sendEmailAsync = async (to, subject, html) => {
     }
 
     console.log(`📧 Attempting to send email to ${to}...`);
-    const result = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev",
       to,
       subject,
       html,
     });
-    console.log(`✅ Email sent successfully to ${to}. ID: ${result.id}`);
+
+    if (error) {
+      console.error(`❌ Resend error for ${to}:`, error);
+      // If validation error about test email, inform user
+      if (error.name === 'validation_error' && error.message.includes('testing emails')) {
+        console.error('⚠️  In test mode, Resend only sends to your verified email address.');
+        console.error('⚠️  To send to any email, verify a domain at resend.com/domains');
+      }
+      return;
+    }
+
+    console.log(`✅ Email sent successfully to ${to}. Data:`, data);
   } catch (emailError) {
     console.error(`❌ Failed to send email to ${to}:`, emailError);
-    console.error(`Error details:`, JSON.stringify(emailError, null, 2));
   }
 };
 
