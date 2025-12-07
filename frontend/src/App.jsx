@@ -9,8 +9,21 @@ const SHOPIFY_DOMAIN = import.meta.env.VITE_SHOPIFY_DOMAIN || "xeno-test-storeV1
 const LoginPage = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
+  const [userId, setUserId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [step, setStep] = useState('login'); // 'login', 'otp'
+  const [otpTimer, setOtpTimer] = useState(600); // 10 minutes
+  const [isNewUser, setIsNewUser] = useState(false);
+
+  // OTP countdown timer
+  useEffect(() => {
+    if (step === 'otp' && otpTimer > 0) {
+      const interval = setInterval(() => setOtpTimer(t => t - 1), 1000);
+      return () => clearInterval(interval);
+    }
+  }, [step, otpTimer]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -30,10 +43,20 @@ const LoginPage = ({ onLogin }) => {
         throw new Error(data.error || 'Login failed');
       }
 
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-      onLogin(data.user);
-      toast.success('Logged in successfully!');
+      // If no OTP required (existing verified user), log in directly
+      if (!data.requiresOTP && data.token) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        onLogin(data.user);
+        toast.success('Logged in successfully!');
+      } else {
+        // New user - require OTP verification
+        setUserId(data.userId);
+        setStep('otp');
+        setOtpTimer(600);
+        setIsNewUser(true);
+        toast.success('OTP sent to your email!');
+      }
     } catch (err) {
       setError(err.message);
       toast.error(err.message);
@@ -41,6 +64,127 @@ const LoginPage = ({ onLogin }) => {
       setLoading(false);
     }
   };
+
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, otp }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'OTP verification failed');
+      }
+
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      onLogin(data.user);
+      toast.success('Account verified!');
+    } catch (err) {
+      setError(err.message);
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to resend OTP');
+      }
+
+      setOtpTimer(600);
+      setOtp('');
+      toast.success('OTP resent to your email!');
+    } catch (err) {
+      setError(err.message);
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (step === 'otp') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
+          <div className="mb-8 text-center">
+            <h1 className="text-3xl font-extrabold text-slate-900 mb-2">Verify OTP</h1>
+            <p className="text-slate-500">Enter the 6-digit code sent to your email</p>
+            <p className="text-sm text-slate-400 mt-2">{email}</p>
+          </div>
+
+          <form onSubmit={handleVerifyOtp} className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">OTP Code</label>
+              <input
+                type="text"
+                maxLength="6"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                placeholder="000000"
+                className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 text-center text-2xl font-bold tracking-widest"
+                required
+              />
+            </div>
+
+            {error && <p className="text-red-500 text-sm font-semibold">{error}</p>}
+
+            <button
+              type="submit"
+              disabled={loading || otp.length !== 6}
+              className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-all disabled:opacity-50"
+            >
+              {loading ? 'Verifying...' : 'Verify OTP'}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center space-y-2">
+            <p className="text-sm text-slate-500">
+              OTP expires in: <span className="font-semibold text-emerald-600">{Math.floor(otpTimer / 60)}:{String(otpTimer % 60).padStart(2, '0')}</span>
+            </p>
+            <button
+              onClick={handleResendOtp}
+              disabled={loading}
+              className="text-sm text-emerald-600 hover:text-emerald-700 font-semibold underline disabled:opacity-50"
+            >
+              Didn't receive OTP? Resend
+            </button>
+            <button
+              onClick={() => {
+                setStep('login');
+                setError('');
+                setOtp('');
+                setIsNewUser(false);
+              }}
+              className="text-sm text-slate-500 hover:text-slate-700 font-semibold underline block mx-auto"
+            >
+              Back to Login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">

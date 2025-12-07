@@ -95,7 +95,7 @@ const authenticateToken = (req, res, next) => {
 };
 
 // --- AUTH ROUTES ---
-// Simple Login - Direct authentication without OTP
+// Login - Send OTP for new users
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -106,10 +106,10 @@ app.post("/api/auth/login", async (req, res) => {
     let user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
-      // Create new user and log them in immediately
+      // Create new user - requires OTP verification
       const hashedPassword = await bcrypt.hash(password, 10);
       user = await prisma.user.create({
-        data: { email, password: hashedPassword, isVerified: true },
+        data: { email, password: hashedPassword, isVerified: false },
       });
     } else {
       // Verify password for existing user
@@ -118,6 +118,83 @@ app.post("/api/auth/login", async (req, res) => {
         return res.status(401).json({ error: "Invalid password" });
       }
     }
+
+    // If user is already verified, return token directly
+    if (user.isVerified) {
+      const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, {
+        expiresIn: "7d",
+      });
+      return res.json({
+        token,
+        user: { id: user.id, email: user.email },
+        requiresOTP: false,
+      });
+    }
+
+    // For new users, send OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { otp, otpExpiry },
+    });
+
+    // Log OTP to console for development/demo
+    console.log(`\n📧 OTP for ${email}: ${otp} (expires in 10 minutes)\n`);
+
+    // Send OTP via email asynchronously (don't wait for completion)
+    sendEmailAsync(
+      email,
+      "Your Merchant Insights OTP Code",
+      `
+        <h2>Welcome to Merchant Insights</h2>
+        <p>Your OTP code is: <strong style="font-size: 24px; color: #059669;">${otp}</strong></p>
+        <p>This code will expire in 10 minutes.</p>
+        <p>Do not share this code with anyone.</p>
+      `
+    );
+
+    res.json({
+      message: "OTP sent to your email. Please check your inbox.",
+      email: email,
+      userId: user.id,
+      requiresOTP: true,
+    });
+  } catch (error) {
+    console.error("Auth error:", error);
+    res.status(500).json({ error: "Authentication failed" });
+  }
+});
+
+// Verify OTP and get token
+app.post("/api/auth/verify-otp", async (req, res) => {
+  try {
+    const { userId, otp } = req.body;
+    if (!userId || !otp) {
+      return res.status(400).json({ error: "User ID and OTP required" });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Check if OTP is valid and not expired
+    if (user.otp !== otp) {
+      return res.status(401).json({ error: "Invalid OTP" });
+    }
+
+    if (!user.otpExpiry || new Date() > user.otpExpiry) {
+      return res.status(401).json({ error: "OTP expired" });
+    }
+
+    // Mark user as verified and clear OTP
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { isVerified: true, otp: null, otpExpiry: null },
+    });
 
     // Generate JWT token
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, {
@@ -129,8 +206,8 @@ app.post("/api/auth/login", async (req, res) => {
       user: { id: user.id, email: user.email },
     });
   } catch (error) {
-    console.error("Auth error:", error);
-    res.status(500).json({ error: "Authentication failed" });
+    console.error("OTP verification error:", error);
+    res.status(500).json({ error: "OTP verification failed" });
   }
 });
 
