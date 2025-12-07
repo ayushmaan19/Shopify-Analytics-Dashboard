@@ -286,18 +286,16 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     );
 
     // Send OTP via email asynchronously (don't wait for completion)
-    if (process.env.SENDGRID_API_KEY) {
-      sendEmailAsync(
-        email,
-        "Password Reset - Merchant Insights",
-        `
-          <h2>Password Reset Request</h2>
-          <p>Your OTP code is: <strong style="font-size: 24px; color: #059669;">${otp}</strong></p>
-          <p>This code will expire in 10 minutes.</p>
-          <p>If you did not request this, please ignore this email.</p>
-        `
-      );
-    }
+    sendEmailAsync(
+      email,
+      "Password Reset - Merchant Insights",
+      `
+        <h2>Password Reset Request</h2>
+        <p>Your OTP code is: <strong style="font-size: 24px; color: #059669;">${otp}</strong></p>
+        <p>This code will expire in 10 minutes.</p>
+        <p>If you did not request this, please ignore this email.</p>
+      `
+    );
 
     res.json({
       message: "OTP sent to your email for password reset.",
