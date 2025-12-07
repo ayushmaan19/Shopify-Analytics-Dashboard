@@ -20,7 +20,6 @@ const LoginPage = ({ onLogin }) => {
   const [showPasswordHints, setShowPasswordHints] = useState(false);
   const [showNewPasswordHints, setShowNewPasswordHints] = useState(false);
 
-  // Password validation
   const validatePassword = (pwd) => {
     const minLength = pwd.length >= 8;
     const hasUppercase = /[A-Z]/.test(pwd);
@@ -41,7 +40,6 @@ const LoginPage = ({ onLogin }) => {
   const passwordValidation = validatePassword(password);
   const newPasswordValidation = validatePassword(newPassword);
 
-  // OTP countdown timer
   useEffect(() => {
     if (step === 'otp' && otpTimer > 0) {
       const interval = setInterval(() => setOtpTimer(t => t - 1), 1000);
@@ -84,7 +82,6 @@ const LoginPage = ({ onLogin }) => {
     setLoading(true);
     setError('');
 
-    // Validate new password strength
     if (!newPasswordValidation.isValid) {
       setError('Password does not meet requirements');
       setLoading(false);
@@ -126,7 +123,6 @@ const LoginPage = ({ onLogin }) => {
     setLoading(true);
     setError('');
 
-    // Validate password strength only for registration
     if (mode === 'register' && !passwordValidation.isValid) {
       setError('Password does not meet requirements');
       setLoading(false);
@@ -144,7 +140,6 @@ const LoginPage = ({ onLogin }) => {
       const data = await response.json();
 
       if (!response.ok) {
-        // If trying to register with existing email, show specific error
         if (mode === 'register' && data.error && data.error.includes('already exists')) {
           setError('Account already exists. Please login instead.');
           toast.error('Account already exists. Please login instead.');
@@ -156,7 +151,6 @@ const LoginPage = ({ onLogin }) => {
         return;
       }
 
-      // Block login in registration mode if account already exists
       if (mode === 'register' && !data.requiresOTP && data.token) {
         setError('Account already exists. Please use login instead.');
         toast.error('Account already exists. Please use login instead.');
@@ -164,14 +158,12 @@ const LoginPage = ({ onLogin }) => {
         return;
       }
 
-      // If no OTP required (existing verified user), log in directly
       if (!data.requiresOTP && data.token) {
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
         onLogin(data.user);
         toast.success('Logged in successfully!');
       } else {
-        // New user - require OTP verification
         setUserId(data.userId);
         setStep('otp');
         setOtpTimer(600);
@@ -191,14 +183,12 @@ const LoginPage = ({ onLogin }) => {
     setError('');
 
     try {
-      // If forgot password mode, go to reset password step
       if (mode === 'forgot-password') {
         setStep('reset-password');
         setLoading(false);
         return;
       }
 
-      // Otherwise, verify OTP for registration
       const response = await fetch(`${API_BASE_URL}/api/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -601,10 +591,8 @@ function App() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [lastSyncTime, setLastSyncTime] = useState(null);
 
-  // --- TOGGLE STATE ---
   const [isAutoSync, setIsAutoSync] = useState(false);
 
-  // Check auth on mount
   useEffect(() => {
     const token = localStorage.getItem('token');
     const savedUser = localStorage.getItem('user');
@@ -613,7 +601,6 @@ function App() {
     }
   }, []);
 
-  // FETCH FUNCTION with Auth
   const getHeaders = () => {
     const token = localStorage.getItem('token');
     return {
@@ -622,7 +609,6 @@ function App() {
     };
   };
 
-  // FETCH TOP CUSTOMERS
   const fetchTopCustomers = useCallback(async () => {
     try {
       const queryParams = new URLSearchParams();
@@ -698,7 +684,6 @@ function App() {
     }
   }, [startDate, endDate, fetchTopCustomers]);
 
-  // MANUAL SYNC - calls backend to fetch from Shopify
   const handleSync = useCallback(async () => {
     setIsOrdersLoading(true);
     setHasError(false);
@@ -706,7 +691,6 @@ function App() {
     try {
       console.log(`[${new Date().toLocaleTimeString()}] Starting Shopify sync...`);
       
-      // Call the sync endpoint
       const syncResponse = await fetch(`${API_BASE_URL}/api/sync`, {
         method: 'POST',
         headers: getHeaders()
@@ -721,7 +705,6 @@ function App() {
       
       console.log("Sync response:", syncData);
       
-      // Then fetch the updated data immediately
       await fetchOrders(false);
       
       setLastSyncTime(new Date());
@@ -735,7 +718,6 @@ function App() {
     }
   }, [fetchOrders]);
 
-  // LOGOUT
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -743,31 +725,25 @@ function App() {
     toast.success('Logged out');
   };
 
-  // INITIAL LOAD - Auto-sync on first load
   useEffect(() => {
     if (user) {
-      // Auto-sync from Shopify on first load
       console.log("🔄 Initial load: Starting auto-sync...");
       handleSync();
     }
   }, [user, handleSync]);
 
-  // AUTO-SYNC EFFECT (Depends on Toggle)
   useEffect(() => {
     let interval;
     if (isAutoSync) {
       console.log("🔄 Auto-Sync ENABLED - Syncing every 30 seconds");
-      // Poll every 30 seconds if Toggle is ON
       interval = setInterval(async () => {
         try {
-          // First sync from Shopify
           const syncResponse = await fetch(`${API_BASE_URL}/api/sync`, {
             method: 'POST',
             headers: getHeaders()
           });
           
           if (syncResponse.ok) {
-            // Then fetch updated data
             await new Promise(r => setTimeout(r, 500));
             fetchOrders(true);
           }
@@ -783,7 +759,6 @@ function App() {
     };
   }, [isAutoSync, fetchOrders]);
 
-  // Fetch orders when date range changes
   useEffect(() => {
     if (user) {
       fetchOrders(false);
@@ -795,7 +770,6 @@ function App() {
     (order.name && order.name.toLowerCase().includes(orderSearchTerm.toLowerCase()))
   );
 
-  // Show login page if not authenticated
   if (!user) {
     return <LoginPage onLogin={(userData) => setUser(userData)} />;
   }

@@ -19,14 +19,12 @@ const PORT = process.env.PORT || 5001;
 const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
 
-// --- BREVO CONFIG ---
 const brevoClient = new Brevo.TransactionalEmailsApi();
 brevoClient.setApiKey(
   Brevo.TransactionalEmailsApiApiKeys.apiKey,
   process.env.BREVO_API_KEY || ""
 );
 
-// Async email helper function using Brevo
 const sendEmailAsync = async (to, subject, html) => {
   try {
     if (!process.env.BREVO_API_KEY) {
@@ -52,8 +50,6 @@ const sendEmailAsync = async (to, subject, html) => {
   }
 };
 
-// --- CORS CONFIG ---
-// --- CORS CONFIG - Allow all origins ---
 app.use(
   cors({
     origin: "*", // Allow from anywhere
@@ -71,7 +67,6 @@ const ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const SHOP_TIMEZONE = process.env.SHOP_TIMEZONE || "Asia/Kolkata";
 
 async function getTenant() {
-  // Always use the same tenant for all users (single Shopify store)
   let tenant = await prisma.tenant.findUnique({
     where: { shopDomain: SHOP_DOMAIN },
   });
@@ -83,7 +78,6 @@ async function getTenant() {
   return tenant;
 }
 
-// --- AUTHENTICATION MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
@@ -97,8 +91,6 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// --- AUTH ROUTES ---
-// Password validation helper
 const validatePassword = (password) => {
   const minLength = password.length >= 8;
   const hasUppercase = /[A-Z]/.test(password);
@@ -123,7 +115,6 @@ const validatePassword = (password) => {
   };
 };
 
-// Login - Send OTP for new users
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password, isRegistration } = req.body;
@@ -134,33 +125,28 @@ app.post("/api/auth/login", async (req, res) => {
     let user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
-      // Validate password for new users
       const passwordCheck = validatePassword(password);
       if (!passwordCheck.isValid) {
         return res.status(400).json({ error: passwordCheck.message });
       }
 
-      // Create new user - requires OTP verification
       const hashedPassword = await bcrypt.hash(password, 10);
       user = await prisma.user.create({
         data: { email, password: hashedPassword, isVerified: false },
       });
     } else {
-      // If user exists and this is a registration attempt, return error
       if (isRegistration) {
         return res
           .status(400)
           .json({ error: "Account already exists. Please login instead." });
       }
 
-      // Verify password for existing user
       const isValid = await bcrypt.compare(password, user.password);
       if (!isValid) {
         return res.status(401).json({ error: "Invalid password" });
       }
     }
 
-    // If user is already verified, return token directly
     if (user.isVerified) {
       const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, {
         expiresIn: "7d",
@@ -172,7 +158,6 @@ app.post("/api/auth/login", async (req, res) => {
       });
     }
 
-    // For new users, send OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
@@ -181,10 +166,8 @@ app.post("/api/auth/login", async (req, res) => {
       data: { otp, otpExpiry },
     });
 
-    // Log OTP to console for development/demo
     console.log(`\n📧 OTP for ${email}: ${otp} (expires in 10 minutes)\n`);
 
-    // Send OTP via email asynchronously (don't wait for completion)
     sendEmailAsync(
       email,
       "Your Merchant Insights OTP Code",
@@ -208,7 +191,6 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// Verify OTP and get token
 app.post("/api/auth/verify-otp", async (req, res) => {
   try {
     const { userId, otp } = req.body;
@@ -222,7 +204,6 @@ app.post("/api/auth/verify-otp", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Check if OTP is valid and not expired
     if (user.otp !== otp) {
       return res.status(401).json({ error: "Invalid OTP" });
     }
@@ -231,13 +212,11 @@ app.post("/api/auth/verify-otp", async (req, res) => {
       return res.status(401).json({ error: "OTP expired" });
     }
 
-    // Mark user as verified and clear OTP
     await prisma.user.update({
       where: { id: user.id },
       data: { isVerified: true, otp: null, otpExpiry: null },
     });
 
-    // Generate JWT token
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, {
       expiresIn: "7d",
     });
@@ -252,12 +231,10 @@ app.post("/api/auth/verify-otp", async (req, res) => {
   }
 });
 
-// Verify token
 app.get("/api/auth/verify", authenticateToken, (req, res) => {
   res.json({ user: req.user });
 });
 
-// Forgot Password - Send OTP to reset
 app.post("/api/auth/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
@@ -271,7 +248,6 @@ app.post("/api/auth/forgot-password", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Generate OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
@@ -280,12 +256,10 @@ app.post("/api/auth/forgot-password", async (req, res) => {
       data: { otp, otpExpiry },
     });
 
-    // Log OTP to console for development/demo
     console.log(
       `\n📧 Password Reset OTP for ${email}: ${otp} (expires in 10 minutes)\n`
     );
 
-    // Send OTP via email asynchronously (don't wait for completion)
     sendEmailAsync(
       email,
       "Password Reset - Merchant Insights",
@@ -308,7 +282,6 @@ app.post("/api/auth/forgot-password", async (req, res) => {
   }
 });
 
-// Reset Password with OTP
 app.post("/api/auth/reset-password", async (req, res) => {
   try {
     const { userId, otp, newPassword } = req.body;
@@ -318,7 +291,6 @@ app.post("/api/auth/reset-password", async (req, res) => {
         .json({ error: "User ID, OTP, and new password required" });
     }
 
-    // Validate new password
     const passwordCheck = validatePassword(newPassword);
     if (!passwordCheck.isValid) {
       return res.status(400).json({ error: passwordCheck.message });
@@ -330,7 +302,6 @@ app.post("/api/auth/reset-password", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Check if OTP is valid and not expired
     if (user.otp !== otp) {
       return res.status(401).json({ error: "Invalid OTP" });
     }
@@ -339,7 +310,6 @@ app.post("/api/auth/reset-password", async (req, res) => {
       return res.status(401).json({ error: "OTP expired" });
     }
 
-    // Hash new password and update
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({
       where: { id: user.id },
@@ -351,7 +321,6 @@ app.post("/api/auth/reset-password", async (req, res) => {
       },
     });
 
-    // Generate JWT token
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, {
       expiresIn: "7d",
     });
@@ -382,7 +351,6 @@ app.post("/api/sync", authenticateToken, async (req, res) => {
     });
     console.log(`✓ Found ${ordersRes.data.orders?.length || 0} orders`);
 
-    // Batch insert orders for better performance
     const orderData = ordersRes.data.orders.map((o) => {
       const name = o.customer
         ? `${o.customer.first_name} ${o.customer.last_name}`
@@ -410,7 +378,6 @@ app.post("/api/sync", authenticateToken, async (req, res) => {
       `✓ Found ${customersRes.data.customers?.length || 0} customers`
     );
 
-    // Batch insert customers for better performance
     const customerData = customersRes.data.customers.map((c) => ({
       shopifyId: String(c.id),
       firstName: c.first_name,
@@ -463,7 +430,6 @@ app.get("/api/orders", authenticateToken, async (req, res) => {
         })
       );
 
-    // Build date filter
     const dateFilter = {};
     if (startDate) {
       dateFilter.gte = new Date(startDate);
@@ -471,8 +437,6 @@ app.get("/api/orders", authenticateToken, async (req, res) => {
     if (endDate) {
       dateFilter.lte = new Date(endDate);
     }
-
-    // 1. Fetch Orders with optional date filter
     const allOrders = await prisma.order.findMany({
       where: {
         tenantId: tenant.id,
@@ -481,14 +445,12 @@ app.get("/api/orders", authenticateToken, async (req, res) => {
       orderBy: { createdAt: "desc" },
     });
 
-    // 2. Stats
     const totalRevenue = allOrders.reduce((sum, o) => sum + o.totalPrice, 0);
     const totalOrders = allOrders.length;
     const totalCustomers = await prisma.customer.count({
       where: { tenantId: tenant.id },
     });
 
-    // 3. List (Top 50)
     const recentList = allOrders.slice(0, 50).map((o) => ({
       id: o.id,
       shopifyId: o.shopifyId,
@@ -498,7 +460,6 @@ app.get("/api/orders", authenticateToken, async (req, res) => {
       status: "paid",
     }));
 
-    // 4. Graph (Group by "Dec 6" format)
     const trendMap = {};
     const today = toTimezoneDate(new Date());
 
@@ -543,13 +504,11 @@ app.get("/api/orders", authenticateToken, async (req, res) => {
   }
 });
 
-// --- TOP 5 CUSTOMERS BY SPEND ---
 app.get("/api/top-customers", authenticateToken, async (req, res) => {
   try {
     const tenant = await getTenant();
     const { startDate, endDate } = req.query;
 
-    // Build date filter
     const dateFilter = {};
     if (startDate) {
       dateFilter.gte = new Date(startDate);
@@ -557,8 +516,6 @@ app.get("/api/top-customers", authenticateToken, async (req, res) => {
     if (endDate) {
       dateFilter.lte = new Date(endDate);
     }
-
-    // Get all orders with optional date filter
     const allOrders = await prisma.order.findMany({
       where: {
         tenantId: tenant.id,
@@ -566,7 +523,6 @@ app.get("/api/top-customers", authenticateToken, async (req, res) => {
       },
     });
 
-    // Group by customer name and sum their spending
     const customerSpend = {};
     allOrders.forEach((order) => {
       const customerName = order.customerName || "Guest";
@@ -576,7 +532,6 @@ app.get("/api/top-customers", authenticateToken, async (req, res) => {
       customerSpend[customerName] += order.totalPrice;
     });
 
-    // Sort and get top 5
     const topCustomers = Object.entries(customerSpend)
       .map(([name, totalSpent]) => ({
         name,
@@ -586,7 +541,6 @@ app.get("/api/top-customers", authenticateToken, async (req, res) => {
       .sort((a, b) => b.totalSpent - a.totalSpent)
       .slice(0, 5);
 
-    // Calculate percentage of total revenue
     const totalRevenue = topCustomers.reduce((sum, c) => sum + c.totalSpent, 0);
     topCustomers.forEach((customer) => {
       customer.percentage = parseFloat(
