@@ -5,7 +5,7 @@ const { PrismaClient } = require("@prisma/client");
 const axios = require("axios");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const nodemailer = require("nodemailer");
+const Brevo = require("@getbrevo/brevo");
 
 const app = express();
 const prisma = new PrismaClient({
@@ -19,30 +19,33 @@ const PORT = process.env.PORT || 5001;
 const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
 
-// --- GMAIL SMTP CONFIG ---
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD,
-  },
-});
+// --- BREVO CONFIG ---
+const brevoClient = new Brevo.TransactionalEmailsApi();
+brevoClient.setApiKey(
+  Brevo.TransactionalEmailsApiApiKeys.apiKey,
+  process.env.BREVO_API_KEY || ""
+);
 
-// Async email helper function using Gmail
+// Async email helper function using Brevo
 const sendEmailAsync = async (to, subject, html) => {
   try {
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
-      console.error("❌ EMAIL_USER or EMAIL_PASSWORD not configured");
+    if (!process.env.BREVO_API_KEY) {
+      console.error("❌ BREVO_API_KEY not configured");
       return;
     }
 
     console.log(`📧 Sending email to ${to}...`);
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to,
-      subject,
-      html,
-    });
+
+    const sendSmtpEmail = new Brevo.SendSmtpEmail();
+    sendSmtpEmail.subject = subject;
+    sendSmtpEmail.htmlContent = html;
+    sendSmtpEmail.sender = {
+      name: "Merchant Insights",
+      email: process.env.BREVO_SENDER_EMAIL || "noreply@merchant-insights.com",
+    };
+    sendSmtpEmail.to = [{ email: to }];
+
+    await brevoClient.sendTransacEmail(sendSmtpEmail);
     console.log(`✅ Email sent successfully to ${to}`);
   } catch (emailError) {
     console.error(`❌ Failed to send email to ${to}:`, emailError.message);
