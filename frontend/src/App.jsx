@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Package, User, Search, X, Loader2, RefreshCcw, TrendingUp, Users, ShoppingBag, Zap, Hash, AlertCircle } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
-import { auth } from './firebase';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
 const SHOPIFY_DOMAIN = import.meta.env.VITE_SHOPIFY_DOMAIN || "xeno-test-storeV1.myshopify.com";
@@ -20,41 +18,25 @@ const LoginPage = ({ onLogin }) => {
     setError('');
 
     try {
-      let userCredential;
-      
-      try {
-        // Try to sign in
-        userCredential = await signInWithEmailAndPassword(auth, email, password);
-        toast.success('Logged in successfully!');
-      } catch (signInError) {
-        if (signInError.code === 'auth/user-not-found' || signInError.code === 'auth/invalid-credential') {
-          // User doesn't exist, create new account
-          userCredential = await createUserWithEmailAndPassword(auth, email, password);
-          toast.success('Account created successfully!');
-        } else {
-          throw signInError;
-        }
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Login failed');
       }
 
-      const firebaseToken = await userCredential.user.getIdToken();
-      localStorage.setItem('firebaseToken', firebaseToken);
-      onLogin({ email: userCredential.user.email, uid: userCredential.user.uid });
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      onLogin(data.user);
+      toast.success('Logged in successfully!');
     } catch (err) {
-      console.error('Auth error:', err);
-      let errorMessage = 'Authentication failed';
-      
-      if (err.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email format';
-      } else if (err.code === 'auth/weak-password') {
-        errorMessage = 'Password should be at least 6 characters';
-      } else if (err.code === 'auth/wrong-password') {
-        errorMessage = 'Invalid password';
-      } else if (err.code === 'auth/email-already-in-use') {
-        errorMessage = 'Email already in use';
-      }
-      
-      setError(errorMessage);
-      toast.error(errorMessage);
+      setError(err.message);
+      toast.error(err.message);
     } finally {
       setLoading(false);
     }
@@ -200,24 +182,18 @@ function App() {
   // --- TOGGLE STATE ---
   const [isAutoSync, setIsAutoSync] = useState(false);
 
-  // Check Firebase auth on mount
+  // Check auth on mount
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const token = await firebaseUser.getIdToken();
-        localStorage.setItem('firebaseToken', token);
-        setUser({ email: firebaseUser.email, uid: firebaseUser.uid });
-      } else {
-        localStorage.removeItem('firebaseToken');
-        setUser(null);
-      }
-    });
-    return () => unsubscribe();
+    const token = localStorage.getItem('token');
+    const savedUser = localStorage.getItem('user');
+    if (token && savedUser) {
+      setUser(JSON.parse(savedUser));
+    }
   }, []);
 
-  // FETCH FUNCTION with Firebase Auth
-  const getHeaders = async () => {
-    const token = localStorage.getItem('firebaseToken');
+  // FETCH FUNCTION with Auth
+  const getHeaders = () => {
+    const token = localStorage.getItem('token');
     return {
       'Content-Type': 'application/json',
       ...(token && { 'Authorization': `Bearer ${token}` })
@@ -235,7 +211,7 @@ function App() {
       // Call the sync endpoint
       const syncResponse = await fetch(`${API_BASE_URL}/api/sync`, {
         method: 'POST',
-        headers: await getHeaders()
+        headers: getHeaders()
       });
       
       const syncData = await syncResponse.json();
@@ -271,11 +247,10 @@ function App() {
       if (endDate) queryParams.append('endDate', endDate);
       
       console.log(`[${new Date().toLocaleTimeString()}] Fetching from: ${API_BASE_URL}/api/orders${isBackground ? ' (Background)' : ''}`);
-      const headers = await getHeaders();
-      console.log("Headers:", headers);
+      console.log("Headers:", getHeaders());
       
       const response = await fetch(`${API_BASE_URL}/api/orders?${queryParams}`, {
-        headers
+        headers: getHeaders()
       });
       
       if (!response.ok) {
@@ -326,7 +301,7 @@ function App() {
       if (endDate) queryParams.append('endDate', endDate);
       
       const response = await fetch(`${API_BASE_URL}/api/top-customers?${queryParams}`, {
-        headers: await getHeaders()
+        headers: getHeaders()
       });
       if (!response.ok) throw new Error('Failed to fetch top customers');
       
@@ -339,9 +314,9 @@ function App() {
   };
 
   // LOGOUT
-  const handleLogout = async () => {
-    await signOut(auth);
-    localStorage.removeItem('firebaseToken');
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setUser(null);
     toast.success('Logged out');
   };
@@ -366,7 +341,7 @@ function App() {
           // First sync from Shopify
           const syncResponse = await fetch(`${API_BASE_URL}/api/sync`, {
             method: 'POST',
-            headers: await getHeaders()
+            headers: getHeaders()
           });
           
           if (syncResponse.ok) {
