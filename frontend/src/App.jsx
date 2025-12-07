@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Package, User, Search, X, Loader2, RefreshCcw, TrendingUp, Users, ShoppingBag, Zap, Hash, AlertCircle } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
+import { auth } from './firebase';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5001";
 const SHOPIFY_DOMAIN = import.meta.env.VITE_SHOPIFY_DOMAIN || "xeno-test-storeV1.myshopify.com";
@@ -9,22 +11,8 @@ const SHOPIFY_DOMAIN = import.meta.env.VITE_SHOPIFY_DOMAIN || "xeno-test-storeV1
 const LoginPage = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [otp, setOtp] = useState('');
-  const [userId, setUserId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [step, setStep] = useState('login'); // 'login', 'otp', 'forgot', 'reset'
-  const [otpTimer, setOtpTimer] = useState(600); // 10 minutes
-  const [isNewUser, setIsNewUser] = useState(false);
-
-  // OTP countdown timer
-  useEffect(() => {
-    if (step === 'otp' && otpTimer > 0) {
-      const interval = setInterval(() => setOtpTimer(t => t - 1), 1000);
-      return () => clearInterval(interval);
-    }
-  }, [step, otpTimer]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -32,358 +20,45 @@ const LoginPage = ({ onLogin }) => {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Login failed');
-      }
-
-      // If no OTP required (existing verified user), log in directly
-      if (!data.requiresOTP && data.token) {
-        localStorage.setItem('token', data.token);
-        onLogin(data.user);
-        toast.success('Logged in successfully!');
-      } else {
-        // New user - require OTP verification
-        setUserId(data.userId);
-        setStep('otp');
-        setOtpTimer(600);
-        setIsNewUser(true);
-        toast.success('New account created! OTP sent to your email.');
-      }
-    } catch (err) {
-      setError(err.message);
-      toast.error(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyOtp = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/verify-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, otp }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'OTP verification failed');
-      }
-
-      localStorage.setItem('token', data.token);
-      onLogin(data.user);
-      if (isNewUser) {
-        toast.success('Account verified! Remember your password - it cannot be changed yet.', { duration: 6000 });
-      } else {
-        toast.success('Logged in successfully!');
-      }
-    } catch (err) {
-      setError(err.message);
-      toast.error(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResendOtp = async () => {
-    setLoading(true);
-    setError('');
-
-    try {
-      const endpoint = step === 'reset' 
-        ? `${API_BASE_URL}/api/auth/forgot-password`
-        : `${API_BASE_URL}/api/auth/login`;
+      let userCredential;
       
-      const body = step === 'reset'
-        ? { email }
-        : { email, password };
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to resend OTP');
+      try {
+        // Try to sign in
+        userCredential = await signInWithEmailAndPassword(auth, email, password);
+        toast.success('Logged in successfully!');
+      } catch (signInError) {
+        if (signInError.code === 'auth/user-not-found' || signInError.code === 'auth/invalid-credential') {
+          // User doesn't exist, create new account
+          userCredential = await createUserWithEmailAndPassword(auth, email, password);
+          toast.success('Account created successfully!');
+        } else {
+          throw signInError;
+        }
       }
 
-      setOtpTimer(600);
-      setOtp('');
-      toast.success('OTP resent to your email!');
+      const firebaseToken = await userCredential.user.getIdToken();
+      localStorage.setItem('firebaseToken', firebaseToken);
+      onLogin({ email: userCredential.user.email, uid: userCredential.user.uid });
     } catch (err) {
-      setError(err.message);
-      toast.error(err.message);
+      console.error('Auth error:', err);
+      let errorMessage = 'Authentication failed';
+      
+      if (err.code === 'auth/invalid-email') {
+        errorMessage = 'Invalid email format';
+      } else if (err.code === 'auth/weak-password') {
+        errorMessage = 'Password should be at least 6 characters';
+      } else if (err.code === 'auth/wrong-password') {
+        errorMessage = 'Invalid password';
+      } else if (err.code === 'auth/email-already-in-use') {
+        errorMessage = 'Email already in use';
+      }
+      
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
   };
-
-  const handleForgotPassword = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to send reset code');
-      }
-
-      setUserId(data.userId);
-      setStep('reset');
-      setOtpTimer(600);
-      toast.success('Password reset code sent to your email!');
-    } catch (err) {
-      setError(err.message);
-      toast.error(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResetPassword = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, otp, newPassword }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Password reset failed');
-      }
-
-      localStorage.setItem('token', data.token);
-      onLogin(data.user);
-      toast.success('Password reset successful!');
-    } catch (err) {
-      setError(err.message);
-      toast.error(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (step === 'otp') {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
-          <div className="mb-8 text-center">
-            <h1 className="text-3xl font-extrabold text-slate-900 mb-2">Verify OTP</h1>
-            <p className="text-slate-500">Enter the 6-digit code sent to your email</p>
-            <p className="text-sm text-slate-400 mt-2">{email}</p>
-            {isNewUser && (
-              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-xs text-amber-800 font-semibold">⚠️ Remember your password! It cannot be changed at this time.</p>
-              </div>
-            )}
-          </div>
-
-          <form onSubmit={handleVerifyOtp} className="space-y-4">
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">OTP Code</label>
-              <input
-                type="text"
-                maxLength="6"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                placeholder="000000"
-                className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 text-center text-2xl font-bold tracking-widest"
-                required
-              />
-            </div>
-
-            {error && <p className="text-red-500 text-sm font-semibold">{error}</p>}
-
-            <button
-              type="submit"
-              disabled={loading || otp.length !== 6}
-              className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-all disabled:opacity-50"
-            >
-              {loading ? 'Verifying...' : 'Verify OTP'}
-            </button>
-          </form>
-
-          <div className="mt-6 text-center space-y-2">
-            <p className="text-sm text-slate-500">
-              OTP expires in: <span className="font-semibold text-emerald-600">{Math.floor(otpTimer / 60)}:{String(otpTimer % 60).padStart(2, '0')}</span>
-            </p>
-            <button
-              onClick={handleResendOtp}
-              disabled={loading}
-              className="text-sm text-emerald-600 hover:text-emerald-700 font-semibold underline disabled:opacity-50"
-            >
-              Didn't receive OTP? Resend
-            </button>
-            <button
-              onClick={() => {
-                setStep('login');
-                setError('');
-                setOtp('');
-                setIsNewUser(false);
-              }}
-              className="text-sm text-slate-500 hover:text-slate-700 font-semibold underline"
-            >
-              Back to Login
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (step === 'forgot') {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
-          <div className="mb-8 text-center">
-            <h1 className="text-3xl font-extrabold text-slate-900 mb-2">Forgot Password</h1>
-            <p className="text-slate-500">Enter your email to receive a reset code</p>
-          </div>
-
-          <form onSubmit={handleForgotPassword} className="space-y-4">
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="your@email.com"
-                className="w-full px-4 py-2 border-2 border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
-                required
-              />
-            </div>
-
-            {error && <p className="text-red-500 text-sm font-semibold">{error}</p>}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-all disabled:opacity-50"
-            >
-              {loading ? 'Sending...' : 'Send Reset Code'}
-            </button>
-          </form>
-
-          <div className="mt-6 text-center">
-            <button
-              onClick={() => {
-                setStep('login');
-                setError('');
-              }}
-              className="text-sm text-slate-500 hover:text-slate-700 font-semibold underline"
-            >
-              Back to Login
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (step === 'reset') {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
-          <div className="mb-8 text-center">
-            <h1 className="text-3xl font-extrabold text-slate-900 mb-2">Reset Password</h1>
-            <p className="text-slate-500">Enter the code and your new password</p>
-            <p className="text-sm text-slate-400 mt-2">{email}</p>
-          </div>
-
-          <form onSubmit={handleResetPassword} className="space-y-4">
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">OTP Code</label>
-              <input
-                type="text"
-                maxLength="6"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                placeholder="000000"
-                className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500 text-center text-2xl font-bold tracking-widest"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">New Password</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full px-4 py-2 border-2 border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
-                required
-              />
-            </div>
-
-            {error && <p className="text-red-500 text-sm font-semibold">{error}</p>}
-
-            <button
-              type="submit"
-              disabled={loading || otp.length !== 6}
-              className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-all disabled:opacity-50"
-            >
-              {loading ? 'Resetting...' : 'Reset Password'}
-            </button>
-          </form>
-
-          <div className="mt-6 text-center space-y-2">
-            <p className="text-sm text-slate-500">
-              Code expires in: <span className="font-semibold text-emerald-600">{Math.floor(otpTimer / 60)}:{String(otpTimer % 60).padStart(2, '0')}</span>
-            </p>
-            <button
-              onClick={handleResendOtp}
-              disabled={loading}
-              className="text-sm text-emerald-600 hover:text-emerald-700 font-semibold underline disabled:opacity-50"
-            >
-              Didn't receive code? Resend
-            </button>
-            <button
-              onClick={() => {
-                setStep('login');
-                setError('');
-                setOtp('');
-                setNewPassword('');
-              }}
-              className="text-sm text-slate-500 hover:text-slate-700 font-semibold underline"
-            >
-              Back to Login
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
@@ -435,24 +110,12 @@ const LoginPage = ({ onLogin }) => {
             disabled={loading}
             className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-all disabled:opacity-50"
           >
-            {loading ? 'Signing in...' : 'Sign In & Send OTP'}
+            {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
 
-        <div className="mt-6 text-center">
-          <button
-            onClick={() => {
-              setStep('forgot');
-              setError('');
-            }}
-            className="text-sm text-emerald-600 hover:text-emerald-700 font-semibold underline"
-          >
-            Forgot Password?
-          </button>
-        </div>
-
         <p className="text-center text-slate-500 text-sm mt-4">
-          Demo: Use any email & password to register/login
+          Use any email & password to register/login instantly
         </p>
       </div>
     </div>
@@ -537,17 +200,24 @@ function App() {
   // --- TOGGLE STATE ---
   const [isAutoSync, setIsAutoSync] = useState(false);
 
-  // Check auth on mount
+  // Check Firebase auth on mount
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      setUser({ token });
-    }
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        const token = await firebaseUser.getIdToken();
+        localStorage.setItem('firebaseToken', token);
+        setUser({ email: firebaseUser.email, uid: firebaseUser.uid });
+      } else {
+        localStorage.removeItem('firebaseToken');
+        setUser(null);
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
-  // FETCH FUNCTION with Auth
-  const getHeaders = () => {
-    const token = localStorage.getItem('token');
+  // FETCH FUNCTION with Firebase Auth
+  const getHeaders = async () => {
+    const token = localStorage.getItem('firebaseToken');
     return {
       'Content-Type': 'application/json',
       ...(token && { 'Authorization': `Bearer ${token}` })
@@ -565,7 +235,7 @@ function App() {
       // Call the sync endpoint
       const syncResponse = await fetch(`${API_BASE_URL}/api/sync`, {
         method: 'POST',
-        headers: getHeaders()
+        headers: await getHeaders()
       });
       
       const syncData = await syncResponse.json();
@@ -601,10 +271,11 @@ function App() {
       if (endDate) queryParams.append('endDate', endDate);
       
       console.log(`[${new Date().toLocaleTimeString()}] Fetching from: ${API_BASE_URL}/api/orders${isBackground ? ' (Background)' : ''}`);
-      console.log("Headers:", getHeaders());
+      const headers = await getHeaders();
+      console.log("Headers:", headers);
       
       const response = await fetch(`${API_BASE_URL}/api/orders?${queryParams}`, {
-        headers: getHeaders()
+        headers
       });
       
       if (!response.ok) {
@@ -655,7 +326,7 @@ function App() {
       if (endDate) queryParams.append('endDate', endDate);
       
       const response = await fetch(`${API_BASE_URL}/api/top-customers?${queryParams}`, {
-        headers: getHeaders()
+        headers: await getHeaders()
       });
       if (!response.ok) throw new Error('Failed to fetch top customers');
       
@@ -668,21 +339,21 @@ function App() {
   };
 
   // LOGOUT
-  const handleLogout = () => {
-    localStorage.removeItem('token');
+  const handleLogout = async () => {
+    await signOut(auth);
+    localStorage.removeItem('firebaseToken');
     setUser(null);
     toast.success('Logged out');
   };
 
   // INITIAL LOAD - Auto-sync on first load
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
+    if (user) {
       // Auto-sync from Shopify on first load
       console.log("🔄 Initial load: Starting auto-sync...");
       handleSync();
     }
-  }, []);
+  }, [user]);
 
   // AUTO-SYNC EFFECT (Depends on Toggle)
   useEffect(() => {
@@ -695,7 +366,7 @@ function App() {
           // First sync from Shopify
           const syncResponse = await fetch(`${API_BASE_URL}/api/sync`, {
             method: 'POST',
-            headers: getHeaders()
+            headers: await getHeaders()
           });
           
           if (syncResponse.ok) {
