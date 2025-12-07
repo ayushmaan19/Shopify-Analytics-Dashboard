@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Package, User, Search, X, Loader2, RefreshCcw, TrendingUp, Users, ShoppingBag, Zap, Hash, AlertCircle } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
@@ -15,7 +15,6 @@ const LoginPage = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [step, setStep] = useState('login'); // 'login', 'otp'
   const [otpTimer, setOtpTimer] = useState(600); // 10 minutes
-  const [isNewUser, setIsNewUser] = useState(false);
 
   // OTP countdown timer
   useEffect(() => {
@@ -54,7 +53,6 @@ const LoginPage = ({ onLogin }) => {
         setUserId(data.userId);
         setStep('otp');
         setOtpTimer(600);
-        setIsNewUser(true);
         toast.success('OTP sent to your email!');
       }
     } catch (err) {
@@ -174,7 +172,6 @@ const LoginPage = ({ onLogin }) => {
                 setStep('login');
                 setError('');
                 setOtp('');
-                setIsNewUser(false);
               }}
               className="text-sm text-slate-500 hover:text-slate-700 font-semibold underline block mx-auto"
             >
@@ -345,7 +342,7 @@ function App() {
   };
 
   // MANUAL SYNC - calls backend to fetch from Shopify
-  const handleSync = async () => {
+  const handleSync = useCallback(async () => {
     setIsOrdersLoading(true);
     setHasError(false);
     
@@ -379,9 +376,9 @@ function App() {
     } finally {
       setIsOrdersLoading(false);
     }
-  };
+  }, [fetchOrders]);
 
-  const fetchOrders = async (isBackground = false) => {
+  const fetchOrders = useCallback(async (isBackground = false) => {
     if (!isBackground) setIsOrdersLoading(true);
     setHasError(false);
     
@@ -435,10 +432,10 @@ function App() {
     } finally {
       if (!isBackground) setIsOrdersLoading(false);
     }
-  };
+  }, [startDate, endDate, fetchTopCustomers]);
 
   // FETCH TOP CUSTOMERS
-  const fetchTopCustomers = async () => {
+  const fetchTopCustomers = useCallback(async () => {
     try {
       const queryParams = new URLSearchParams();
       if (startDate) queryParams.append('startDate', startDate);
@@ -455,7 +452,7 @@ function App() {
     } catch (error) {
       console.error("Failed to fetch top customers:", error);
     }
-  };
+  }, [startDate, endDate]);
 
   // LOGOUT
   const handleLogout = () => {
@@ -472,7 +469,7 @@ function App() {
       console.log("🔄 Initial load: Starting auto-sync...");
       handleSync();
     }
-  }, [user]);
+  }, [user, handleSync]);
 
   // AUTO-SYNC EFFECT (Depends on Toggle)
   useEffect(() => {
@@ -503,14 +500,14 @@ function App() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isAutoSync]);
+  }, [isAutoSync, fetchOrders]);
 
   // Fetch orders when date range changes
   useEffect(() => {
     if (user) {
       fetchOrders(false);
     }
-  }, [startDate, endDate]);
+  }, [startDate, endDate, fetchOrders, user]);
 
   const filteredOrders = recentOrders.filter((order) =>
     (order.date && order.date.toLowerCase().includes(orderSearchTerm.toLowerCase())) ||
