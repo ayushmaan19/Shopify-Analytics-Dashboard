@@ -5,7 +5,7 @@ const { PrismaClient } = require("@prisma/client");
 const axios = require("axios");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const emailjs = require("@emailjs/nodejs");
+const nodemailer = require("nodemailer");
 
 const app = express();
 const prisma = new PrismaClient({
@@ -19,39 +19,33 @@ const PORT = process.env.PORT || 5001;
 const JWT_SECRET =
   process.env.JWT_SECRET || "your-secret-key-change-in-production";
 
-// --- EMAILJS CONFIG ---
-// Async email helper function using EmailJS
+// --- GMAIL SMTP CONFIG ---
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD,
+  },
+});
+
+// Async email helper function using Gmail
 const sendEmailAsync = async (to, subject, html) => {
   try {
-    if (
-      !process.env.EMAILJS_SERVICE_ID ||
-      !process.env.EMAILJS_TEMPLATE_ID ||
-      !process.env.EMAILJS_PUBLIC_KEY ||
-      !process.env.EMAILJS_PRIVATE_KEY
-    ) {
-      console.error("❌ EmailJS credentials not configured");
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+      console.error("❌ EMAIL_USER or EMAIL_PASSWORD not configured");
       return;
     }
 
     console.log(`📧 Sending email to ${to}...`);
-
-    await emailjs.send(
-      process.env.EMAILJS_SERVICE_ID,
-      process.env.EMAILJS_TEMPLATE_ID,
-      {
-        to_email: to,
-        subject: subject,
-        message: html,
-      },
-      {
-        publicKey: process.env.EMAILJS_PUBLIC_KEY,
-        privateKey: process.env.EMAILJS_PRIVATE_KEY,
-      }
-    );
-
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to,
+      subject,
+      html,
+    });
     console.log(`✅ Email sent successfully to ${to}`);
   } catch (emailError) {
-    console.error(`❌ Failed to send email to ${to}:`, emailError);
+    console.error(`❌ Failed to send email to ${to}:`, emailError.message);
   }
 };
 
