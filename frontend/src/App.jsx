@@ -9,12 +9,37 @@ const SHOPIFY_DOMAIN = import.meta.env.VITE_SHOPIFY_DOMAIN || "xeno-test-storeV1
 const LoginPage = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [userId, setUserId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [step, setStep] = useState('login'); // 'login', 'otp'
+  const [mode, setMode] = useState('login'); // 'login', 'register', 'forgot-password'
+  const [step, setStep] = useState('login'); // 'login', 'otp', 'reset-password'
   const [otpTimer, setOtpTimer] = useState(600); // 10 minutes
+  const [showPasswordHints, setShowPasswordHints] = useState(false);
+  const [showNewPasswordHints, setShowNewPasswordHints] = useState(false);
+
+  // Password validation
+  const validatePassword = (pwd) => {
+    const minLength = pwd.length >= 8;
+    const hasUppercase = /[A-Z]/.test(pwd);
+    const hasLowercase = /[a-z]/.test(pwd);
+    const hasNumber = /[0-9]/.test(pwd);
+    const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(pwd);
+    
+    return {
+      isValid: minLength && hasUppercase && hasLowercase && hasNumber && hasSpecial,
+      minLength,
+      hasUppercase,
+      hasLowercase,
+      hasNumber,
+      hasSpecial
+    };
+  };
+
+  const passwordValidation = validatePassword(password);
+  const newPasswordValidation = validatePassword(newPassword);
 
   // OTP countdown timer
   useEffect(() => {
@@ -24,22 +49,119 @@ const LoginPage = ({ onLogin }) => {
     }
   }, [step, otpTimer]);
 
-  const handleLogin = async (e) => {
+  const handleForgotPassword = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Login failed');
+        throw new Error(data.error || 'Failed to send OTP');
+      }
+
+      setUserId(data.userId);
+      setStep('otp');
+      setOtpTimer(600);
+      toast.success('OTP sent to your email!');
+    } catch (err) {
+      setError(err.message);
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    // Validate new password strength
+    if (!newPasswordValidation.isValid) {
+      setError('Password does not meet requirements');
+      setLoading(false);
+      setShowNewPasswordHints(true);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, otp, newPassword }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Password reset failed');
+      }
+
+      toast.success('Password reset successfully!');
+      setMode('login');
+      setStep('login');
+      setEmail('');
+      setPassword('');
+      setNewPassword('');
+      setOtp('');
+      setError('');
+    } catch (err) {
+      setError(err.message);
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    // Validate password strength only for registration
+    if (mode === 'register' && !passwordValidation.isValid) {
+      setError('Password does not meet requirements');
+      setLoading(false);
+      setShowPasswordHints(true);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, isRegistration: mode === 'register' }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // If trying to register with existing email, show specific error
+        if (mode === 'register' && data.error && data.error.includes('already exists')) {
+          setError('Account already exists. Please login instead.');
+          toast.error('Account already exists. Please login instead.');
+        } else {
+          setError(data.error || 'Login failed');
+          toast.error(data.error || 'Login failed');
+        }
+        setLoading(false);
+        return;
+      }
+
+      // Block login in registration mode if account already exists
+      if (mode === 'register' && !data.requiresOTP && data.token) {
+        setError('Account already exists. Please use login instead.');
+        toast.error('Account already exists. Please use login instead.');
+        setLoading(false);
+        return;
       }
 
       // If no OTP required (existing verified user), log in directly
@@ -69,6 +191,14 @@ const LoginPage = ({ onLogin }) => {
     setError('');
 
     try {
+      // If forgot password mode, go to reset password step
+      if (mode === 'forgot-password') {
+        setStep('reset-password');
+        setLoading(false);
+        return;
+      }
+
+      // Otherwise, verify OTP for registration
       const response = await fetch(`${API_BASE_URL}/api/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -98,10 +228,18 @@ const LoginPage = ({ onLogin }) => {
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      const endpoint = mode === 'forgot-password' 
+        ? `${API_BASE_URL}/api/auth/forgot-password`
+        : `${API_BASE_URL}/api/auth/login`;
+      
+      const body = mode === 'forgot-password'
+        ? { email }
+        : { email, password };
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(body),
       });
 
       const data = await response.json();
@@ -120,6 +258,83 @@ const LoginPage = ({ onLogin }) => {
       setLoading(false);
     }
   };
+
+  if (step === 'reset-password') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
+          <div className="mb-8 text-center">
+            <h1 className="text-3xl font-extrabold text-slate-900 mb-2">Reset Password</h1>
+            <p className="text-slate-500">Enter your new password</p>
+          </div>
+
+          <form onSubmit={handleResetPassword} className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">New Password</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                onFocus={() => setShowNewPasswordHints(true)}
+                placeholder="••••••••"
+                className="w-full px-4 py-2 border-2 border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                required
+              />
+              {showNewPasswordHints && newPassword && (
+                <div className="mt-2 p-3 bg-slate-50 rounded-lg space-y-1 text-xs">
+                  <p className="font-semibold text-slate-700 mb-1">Password must contain:</p>
+                  <div className="flex items-center gap-2">
+                    <span className={newPasswordValidation.minLength ? 'text-emerald-600' : 'text-slate-400'}>●</span>
+                    <span className={newPasswordValidation.minLength ? 'text-emerald-600' : 'text-slate-500'}>At least 8 characters</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={newPasswordValidation.hasUppercase ? 'text-emerald-600' : 'text-slate-400'}>●</span>
+                    <span className={newPasswordValidation.hasUppercase ? 'text-emerald-600' : 'text-slate-500'}>One uppercase letter (A-Z)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={newPasswordValidation.hasLowercase ? 'text-emerald-600' : 'text-slate-400'}>●</span>
+                    <span className={newPasswordValidation.hasLowercase ? 'text-emerald-600' : 'text-slate-500'}>One lowercase letter (a-z)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={newPasswordValidation.hasNumber ? 'text-emerald-600' : 'text-slate-400'}>●</span>
+                    <span className={newPasswordValidation.hasNumber ? 'text-emerald-600' : 'text-slate-500'}>One number (0-9)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={newPasswordValidation.hasSpecial ? 'text-emerald-600' : 'text-slate-400'}>●</span>
+                    <span className={newPasswordValidation.hasSpecial ? 'text-emerald-600' : 'text-slate-500'}>One special character (!@#$%...)</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {error && <p className="text-red-500 text-sm font-semibold">{error}</p>}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-all disabled:opacity-50"
+            >
+              {loading ? 'Resetting...' : 'Reset Password'}
+            </button>
+          </form>
+
+          <div className="mt-4 text-center">
+            <button
+              onClick={() => {
+                setStep('login');
+                setMode('login');
+                setError('');
+                setNewPassword('');
+              }}
+              className="text-sm text-slate-500 hover:text-slate-700 font-semibold underline"
+            >
+              Back to Login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (step === 'otp') {
     return (
@@ -198,10 +413,12 @@ const LoginPage = ({ onLogin }) => {
       <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
         <div className="mb-8 text-center">
           <h1 className="text-4xl font-extrabold text-slate-900 mb-2">Merchant Insights</h1>
-          <p className="text-slate-500">Sign in to your account</p>
+          <p className="text-slate-500">
+            {mode === 'register' ? 'Create your account' : mode === 'forgot-password' ? 'Reset your password' : 'Sign in to your account'}
+          </p>
         </div>
 
-        <form onSubmit={handleLogin} className="space-y-4">
+        <form onSubmit={mode === 'forgot-password' ? handleForgotPassword : handleLogin} className="space-y-4">
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-2">Email</label>
             <input
@@ -214,17 +431,45 @@ const LoginPage = ({ onLogin }) => {
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full px-4 py-2 border-2 border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
-              required
-            />
-          </div>
+          {mode !== 'forgot-password' && (
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onFocus={() => mode === 'register' && setShowPasswordHints(true)}
+                placeholder="••••••••"
+                className="w-full px-4 py-2 border-2 border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+                required
+              />
+              {mode === 'register' && showPasswordHints && password && (
+                <div className="mt-2 p-3 bg-slate-50 rounded-lg space-y-1 text-xs">
+                  <p className="font-semibold text-slate-700 mb-1">Password must contain:</p>
+                  <div className="flex items-center gap-2">
+                    <span className={passwordValidation.minLength ? 'text-emerald-600' : 'text-slate-400'}>●</span>
+                    <span className={passwordValidation.minLength ? 'text-emerald-600' : 'text-slate-500'}>At least 8 characters</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={passwordValidation.hasUppercase ? 'text-emerald-600' : 'text-slate-400'}>●</span>
+                    <span className={passwordValidation.hasUppercase ? 'text-emerald-600' : 'text-slate-500'}>One uppercase letter (A-Z)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={passwordValidation.hasLowercase ? 'text-emerald-600' : 'text-slate-400'}>●</span>
+                    <span className={passwordValidation.hasLowercase ? 'text-emerald-600' : 'text-slate-500'}>One lowercase letter (a-z)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={passwordValidation.hasNumber ? 'text-emerald-600' : 'text-slate-400'}>●</span>
+                    <span className={passwordValidation.hasNumber ? 'text-emerald-600' : 'text-slate-500'}>One number (0-9)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={passwordValidation.hasSpecial ? 'text-emerald-600' : 'text-slate-400'}>●</span>
+                    <span className={passwordValidation.hasSpecial ? 'text-emerald-600' : 'text-slate-500'}>One special character (!@#$%...)</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {error && <p className="text-red-500 text-sm font-semibold">{error}</p>}
 
@@ -233,13 +478,49 @@ const LoginPage = ({ onLogin }) => {
             disabled={loading}
             className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-all disabled:opacity-50"
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading 
+              ? (mode === 'register' ? 'Creating Account...' : mode === 'forgot-password' ? 'Sending OTP...' : 'Signing in...') 
+              : (mode === 'register' ? 'Create Account' : mode === 'forgot-password' ? 'Send OTP' : 'Sign In')}
           </button>
         </form>
 
-        <p className="text-center text-slate-500 text-sm mt-4">
-          Use any email & password to register/login instantly
-        </p>
+        {mode === 'login' && (
+          <div className="text-center mt-3">
+            <button
+              onClick={() => {
+                setMode('forgot-password');
+                setError('');
+                setPassword('');
+              }}
+              className="text-sm text-slate-600 hover:text-slate-800 font-semibold"
+            >
+              Forgot password?
+            </button>
+          </div>
+        )}
+
+        <div className="text-center mt-4">
+          <button
+            onClick={() => {
+              if (mode === 'forgot-password') {
+                setMode('login');
+              } else {
+                setMode(mode === 'login' ? 'register' : 'login');
+              }
+              setError('');
+              setShowPasswordHints(false);
+            }}
+            className="text-sm text-emerald-600 hover:text-emerald-700 font-semibold"
+          >
+            {mode === 'login' ? "Don't have an account? Register" : mode === 'forgot-password' ? 'Back to Login' : 'Already have an account? Login'}
+          </button>
+        </div>
+
+        {mode === 'register' && (
+          <p className="text-center text-slate-500 text-xs mt-2">
+            Password must be 8+ characters with uppercase, lowercase, number & special character
+          </p>
+        )}
       </div>
     </div>
   );

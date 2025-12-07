@@ -95,10 +95,35 @@ const authenticateToken = (req, res, next) => {
 };
 
 // --- AUTH ROUTES ---
+// Password validation helper
+const validatePassword = (password) => {
+  const minLength = password.length >= 8;
+  const hasUppercase = /[A-Z]/.test(password);
+  const hasLowercase = /[a-z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+
+  return {
+    isValid:
+      minLength && hasUppercase && hasLowercase && hasNumber && hasSpecial,
+    message: !minLength
+      ? "Password must be at least 8 characters"
+      : !hasUppercase
+      ? "Password must contain at least one uppercase letter"
+      : !hasLowercase
+      ? "Password must contain at least one lowercase letter"
+      : !hasNumber
+      ? "Password must contain at least one number"
+      : !hasSpecial
+      ? "Password must contain at least one special character"
+      : "",
+  };
+};
+
 // Login - Send OTP for new users
 app.post("/api/auth/login", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, isRegistration } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password required" });
     }
@@ -106,12 +131,25 @@ app.post("/api/auth/login", async (req, res) => {
     let user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
+      // Validate password for new users
+      const passwordCheck = validatePassword(password);
+      if (!passwordCheck.isValid) {
+        return res.status(400).json({ error: passwordCheck.message });
+      }
+
       // Create new user - requires OTP verification
       const hashedPassword = await bcrypt.hash(password, 10);
       user = await prisma.user.create({
         data: { email, password: hashedPassword, isVerified: false },
       });
     } else {
+      // If user exists and this is a registration attempt, return error
+      if (isRegistration) {
+        return res
+          .status(400)
+          .json({ error: "Account already exists. Please login instead." });
+      }
+
       // Verify password for existing user
       const isValid = await bcrypt.compare(password, user.password);
       if (!isValid) {
@@ -277,6 +315,12 @@ app.post("/api/auth/reset-password", async (req, res) => {
       return res
         .status(400)
         .json({ error: "User ID, OTP, and new password required" });
+    }
+
+    // Validate new password
+    const passwordCheck = validatePassword(newPassword);
+    if (!passwordCheck.isValid) {
+      return res.status(400).json({ error: passwordCheck.message });
     }
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
