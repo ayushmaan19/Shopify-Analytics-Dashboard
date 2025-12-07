@@ -341,42 +341,25 @@ function App() {
     };
   };
 
-  // MANUAL SYNC - calls backend to fetch from Shopify
-  const handleSync = useCallback(async () => {
-    setIsOrdersLoading(true);
-    setHasError(false);
-    
+  // FETCH TOP CUSTOMERS
+  const fetchTopCustomers = useCallback(async () => {
     try {
-      console.log(`[${new Date().toLocaleTimeString()}] Starting Shopify sync...`);
+      const queryParams = new URLSearchParams();
+      if (startDate) queryParams.append('startDate', startDate);
+      if (endDate) queryParams.append('endDate', endDate);
       
-      // Call the sync endpoint
-      const syncResponse = await fetch(`${API_BASE_URL}/api/sync`, {
-        method: 'POST',
+      const response = await fetch(`${API_BASE_URL}/api/top-customers?${queryParams}`, {
         headers: getHeaders()
       });
+      if (!response.ok) throw new Error('Failed to fetch top customers');
       
-      const syncData = await syncResponse.json();
-      
-      if (!syncResponse.ok) {
-        console.error("Sync error response:", syncData);
-        throw new Error(syncData.details || syncData.error || `Sync failed: ${syncResponse.status}`);
-      }
-      
-      console.log("Sync response:", syncData);
-      
-      // Then fetch the updated data immediately
-      await fetchOrders(false);
-      
-      setLastSyncTime(new Date());
-      toast.success("Synced from Shopify!");
+      const data = await response.json();
+      setTopCustomers(data);
+      console.log("Top customers updated:", data);
     } catch (error) {
-      console.error("Sync Error:", error);
-      setHasError(true);
-      toast.error("Sync Failed: " + error.message);
-    } finally {
-      setIsOrdersLoading(false);
+      console.error("Failed to fetch top customers:", error);
     }
-  }, [fetchOrders]);
+  }, [startDate, endDate]);
 
   const fetchOrders = useCallback(async (isBackground = false) => {
     if (!isBackground) setIsOrdersLoading(true);
@@ -434,25 +417,42 @@ function App() {
     }
   }, [startDate, endDate, fetchTopCustomers]);
 
-  // FETCH TOP CUSTOMERS
-  const fetchTopCustomers = useCallback(async () => {
+  // MANUAL SYNC - calls backend to fetch from Shopify
+  const handleSync = useCallback(async () => {
+    setIsOrdersLoading(true);
+    setHasError(false);
+    
     try {
-      const queryParams = new URLSearchParams();
-      if (startDate) queryParams.append('startDate', startDate);
-      if (endDate) queryParams.append('endDate', endDate);
+      console.log(`[${new Date().toLocaleTimeString()}] Starting Shopify sync...`);
       
-      const response = await fetch(`${API_BASE_URL}/api/top-customers?${queryParams}`, {
+      // Call the sync endpoint
+      const syncResponse = await fetch(`${API_BASE_URL}/api/sync`, {
+        method: 'POST',
         headers: getHeaders()
       });
-      if (!response.ok) throw new Error('Failed to fetch top customers');
       
-      const data = await response.json();
-      setTopCustomers(data);
-      console.log("Top customers updated:", data);
+      const syncData = await syncResponse.json();
+      
+      if (!syncResponse.ok) {
+        console.error("Sync error response:", syncData);
+        throw new Error(syncData.details || syncData.error || `Sync failed: ${syncResponse.status}`);
+      }
+      
+      console.log("Sync response:", syncData);
+      
+      // Then fetch the updated data immediately
+      await fetchOrders(false);
+      
+      setLastSyncTime(new Date());
+      toast.success("Synced from Shopify!");
     } catch (error) {
-      console.error("Failed to fetch top customers:", error);
+      console.error("Sync Error:", error);
+      setHasError(true);
+      toast.error("Sync Failed: " + error.message);
+    } finally {
+      setIsOrdersLoading(false);
     }
-  }, [startDate, endDate]);
+  }, [fetchOrders]);
 
   // LOGOUT
   const handleLogout = () => {
