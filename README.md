@@ -48,7 +48,7 @@ Backend:
 - PostgreSQL (Neon)
 - JWT (jsonwebtoken)
 - bcryptjs (password hashing)
-- Nodemailer (email sending)
+- Bervo Client(email sending)
 
 Database:
 - PostgreSQL with Neon
